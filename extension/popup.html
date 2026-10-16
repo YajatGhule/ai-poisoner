@@ -1,0 +1,34 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>AI Poisoner</title>
+<style>
+  :root{--bg:#0e0d0c;--bg2:#171513;--ink:#ede7db;--mute:#8d867c;--faint:#2e2a27;--gold:#c9a45c}
+  *{box-sizing:border-box;margin:0}
+  body{width:300px;background:var(--bg);color:var(--ink);font:13px/1.4 Inter,ui-sans-serif,system-ui,sans-serif;padding:18px}
+  .k{font:10px ui-monospace,"JetBrains Mono",monospace;letter-spacing:.16em;text-transform:uppercase;color:var(--mute)}
+  h1{font:400 26px/1 "Instrument Serif",Georgia,serif;letter-spacing:-.01em;margin:6px 0 16px}
+  h1 em{color:var(--gold)}
+  .row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid var(--faint)}
+  .sw{position:relative;width:36px;height:20px;border-radius:10px;background:var(--faint);cursor:pointer;border:0;transition:.2s}
+  .sw::after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:var(--mute);transition:.2s}
+  .sw[aria-pressed=true]{background:#5c4a2b}.sw[aria-pressed=true]::after{left:19px;background:var(--gold)}
+  .seg{display:flex;border:1px solid var(--faint);border-radius:7px;overflow:hidden}
+  .seg button{background:none;border:0;color:var(--mute);font:inherit;font-size:12px;padding:5px 11px;cursor:pointer}
+  .seg button[aria-pressed=true]{background:var(--bg2);color:var(--ink)}
+  input[type=range]{width:120px;accent-color:var(--gold)}
+  .status{display:flex;align-items:center;gap:8px;padding-top:12px;border-top:1px solid var(--faint);color:var(--mute);font-size:12px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--mute);flex:none}
+  .dot.ready{background:#6fbf8a}.dot.loading{background:var(--gold)}.dot.error{background:#e0604f}
+  .legend{display:flex;gap:12px;margin-top:12px;font-size:11px;color:var(--mute)}
+  .legend i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}
+</style></head>
+<body>
+  <div class="k">High Art · Detector</div>
+  <h1>AI <em>Poisoner</em></h1>
+  <div class="row"><span>Scan images on pages</span><button class="sw" id="enabled" aria-pressed="true" aria-label="Enable"></button></div>
+  <div class="row"><span>When AI is found</span>
+    <div class="seg" id="mode"><button data-v="label">Label</button><button data-v="blur">Blur</button></div></div>
+  <div class="row"><span>Sensitivity</span><input type="range" id="sens" min="0.6" max="0.97" step="0.01"></div>
+  <div class="status"><span class="dot" id="dot"></span><span id="st">Starting…</span></div>
+  <div class="legend"><span><i style="background:#e0604f"></i>AI</span><span><i style="background:#c9a45c"></i>Unsure</span><span><i style="background:#6fbf8a"></i>Human</span><span><span style="color:#c9a45c">CR</span> = C2PA</span></div>
+  <script src="popup.js"></script>
+</body></html>

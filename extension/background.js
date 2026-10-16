@@ -22,11 +22,13 @@ async function toOffscreen(msg) {
 
 // captureVisibleTab is limited to ~2 calls/s, so serialise and space them out.
 let captureChain = Promise.resolve();
+let lastCapture = 0;
 function capture(windowId) {
   const run = captureChain.then(async () => {
-    const url = await chrome.tabs.captureVisibleTab(windowId, { format: 'png' });
-    await new Promise(r => setTimeout(r, 550));
-    return url;
+    await new Promise(r => setTimeout(r, Math.max(0, lastCapture + 550 - Date.now())));
+    lastCapture = Date.now();
+    // JPEG is ~10x faster to capture than PNG and the page's images are mostly JPEG already.
+    return chrome.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality: 95 });
   });
   captureChain = run.catch(() => {});
   return run;
@@ -40,6 +42,8 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
         return toOffscreen({ type: 'classify-url', url: msg.url });
       case 'classify-region': {
         const shot = await capture(sender.tab.windowId);
+        // Let the page bring its badges back now rather than after the model has run.
+        chrome.tabs.sendMessage(sender.tab.id, { type: 'captured', id: msg.id }, { frameId: sender.frameId }).catch(() => {});
         return toOffscreen({ type: 'classify-region', shot, rect: msg.rect, dpr: msg.dpr });
       }
       case 'status':
