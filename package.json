@@ -1,0 +1,12 @@
+{
+  "name": "ai-poisoner",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@huggingface/transformers": "4.3.1"
+  },
+  "scripts": {
+    "build": "node tools/vendor.mjs",
+    "eval": "node tools/eval.mjs"
+  }
+}
