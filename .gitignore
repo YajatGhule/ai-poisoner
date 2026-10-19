@@ -1,3 +1,9 @@
 node_modules/
 extension/lib/
 dist/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.onnx

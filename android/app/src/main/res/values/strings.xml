@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AI Poisoner</string>
+    <string name="a11y_label">AI Poisoner image labels</string>
+    <string name="a11y_summary">Shows AI / Human labels on images in other apps</string>
+    <string name="a11y_description">AI Poisoner reads which parts of the screen are images and takes screenshots of just those areas to check, on your phone, whether each picture looks AI-generated. Nothing is saved or uploaded. Turn this off any time to stop the labels.</string>
+</resources>

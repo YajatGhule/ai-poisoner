@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Crossed-out eye, same mark as the Chrome extension -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#0E0D0C" android:pathData="M0,0h108v108h-108z" />
+    <path
+        android:strokeColor="#EDE7DB"
+        android:strokeWidth="5"
+        android:fillColor="#00000000"
+        android:pathData="M22,54 Q54,26 86,54 Q54,82 22,54Z" />
+    <path
+        android:strokeColor="#EDE7DB"
+        android:strokeWidth="5"
+        android:fillColor="#00000000"
+        android:pathData="M54,44 a10,10 0 1,1 -0.01,0Z" />
+    <path
+        android:strokeColor="#C9A45C"
+        android:strokeWidth="6"
+        android:strokeLineCap="round"
+        android:pathData="M32,78 L76,30" />
+</vector>
