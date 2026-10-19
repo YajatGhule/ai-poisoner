@@ -118,8 +118,16 @@ pnpm package        # dist/ai-poisoner-v<version>.zip, the file attached to rele
 Then use **Load unpacked** on the `extension/` folder. `pnpm eval <dir>` scores a folder that has `ai/` and `real/`
 subfolders, so you can compare other models.
 
+## Android app
+
+[`android/`](android/) has the phone version: the same image labels in **any app** (through an Accessibility
+Service), plus a **voice check** that listens to the mic or to other apps' audio, transcribes it live, and estimates
+whether the voice is AI-generated, using [a detector trained for this project](android/voice-model/README.md)
+(on held-out voices: 0–2% of real voices flagged, 72–100% of AI voices caught).
+It's **source only for now** (type-checked, not built yet). See
+[android/README.md](android/README.md) for how it works and how to build it.
+
 ## Not built yet
 
 - **Poisoner**: protect your own uploads (Glaze/Nightshade-style perturbation, e.g. Mist or PhotoGuard on a GPU backend).
-- Continuous video scanning (videos are currently checked once, from a screenshot).
-- Android version (AccessibilityService + LiteRT).
+- Continuous video scanning in the extension (videos are currently checked once, from a screenshot).

@@ -157,7 +157,7 @@ class Detector(torch.nn.Module):
         self.register_buffer('mu', torch.tensor(mu, dtype=torch.float32))
         self.register_buffer('sd', torch.tensor(sd, dtype=torch.float32))
         self.register_buffer('w', torch.tensor(w, dtype=torch.float32))
-        self.register_buffer('b', torch.tensor([b], dtype=torch.float32))
+        self.register_buffer('b', torch.tensor(b, dtype=torch.float32))  # scalar, so logits come out [1, 2]
 
     def forward(self, input_values):
         h = self.w2v(input_values, output_hidden_states=True).hidden_states[LAYER][0]
@@ -173,15 +173,9 @@ with torch.no_grad():
 fp32 = f'{OUT}/voice_detector_fp32.onnx'
 torch.onnx.export(det, (x0,), fp32, input_names=['input_values'], output_names=['logits'],
                   dynamic_axes={'input_values': {1: 'samples'}}, opset_version=17, dynamo=False)
-from onnxruntime.quantization import quantize_dynamic, QuantType
-int8 = f'{OUT}/voice_detector_int8.onnx'
-quantize_dynamic(fp32, int8, weight_type=QuantType.QInt8, per_channel=True)
+# int8 quantization shifts this model's scores badly (it uses layer-1 features), see quantize_eval.py.
+# The app ships this fp32 graph as voice_detector.onnx.
 import onnxruntime as ort
-s = ort.InferenceSession(int8, providers=['CPUExecutionProvider'])
-pe = []
-for x, _, _ in te_clean + te_tel:
-    l = s.run(None, {'input_values': x[None]})[0][0]; pe.append(1 / (1 + np.exp(l[0] - l[1])))
-pe = np.array(pe); y = np.concatenate([Y['tec'], Y['tet']])
-print(f'\nexported int8 {os.path.getsize(int8) / 1e6:.0f} MB; torch vs onnx check {ref:.3f}; int8 held-out AUC (clean+phone) {auc(pe, y):.3f}')
-report['int8_auc'] = auc(pe, y)
-json.dump(report, open(f'{OUT}/report.json', 'w'), indent=1)
+s = ort.InferenceSession(fp32, providers=['CPUExecutionProvider'])
+l = s.run(None, {'input_values': x0.numpy()})[0][0]
+print(f'\nexported fp32 {os.path.getsize(fp32) / 1e6:.0f} MB; torch {ref:.4f} vs onnx {1 / (1 + np.exp(l[0] - l[1])):.4f}')

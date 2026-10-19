@@ -26,8 +26,8 @@ object Models {
         ),
         VOICE(
             "AI-voice detector",
-            "https://github.com/YajatGhule/ai-poisoner/releases/download/voice-model-v1/voice_detector_int8.onnx",
-            "voice_detector.onnx", 95,
+            "https://github.com/YajatGhule/ai-poisoner/releases/download/voice-model-v1/voice_detector.onnx",
+            "voice_detector.onnx", 66,
         ),
         TRANSCRIBER(
             "Speech-to-text (English)",
