@@ -41,6 +41,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Thread { Models.removeOutdated(this) }.start()
         setContentView(buildUi())
     }
 
@@ -49,11 +50,12 @@ class MainActivity : Activity() {
         a11yStatus.text = if (imageServiceOn()) "● On — labels appear on images in other apps"
         else "○ Off — turn on “AI Poisoner image labels” in Accessibility settings"
         a11yStatus.setTextColor(if (imageServiceOn()) GREEN else MUTE)
-        Models.Kind.entries.forEach { refreshModelRow(it) }
+        ticker.run()
         VoiceState.observe(onVoice)
     }
 
     override fun onPause() {
+        a11yStatus.removeCallbacks(ticker)
         VoiceState.remove(onVoice)
         super.onPause()
     }
@@ -158,9 +160,10 @@ class MainActivity : Activity() {
         return row
     }
 
-    private fun refreshModelRow(kind: Models.Kind, progress: Float? = null) {
+    private fun refreshModelRow(kind: Models.Kind) {
         val (text, get) = modelRows[kind] ?: return
         val ready = Models.isReady(this, kind)
+        val progress = if (ready) null else Models.progressOf(kind)
         text.text = when {
             ready -> "${kind.label}  ✓"
             progress != null -> "${kind.label} · ${(progress * 100).toInt()}%"
@@ -168,21 +171,34 @@ class MainActivity : Activity() {
         }
         get.visibility = if (ready) View.GONE else View.VISIBLE
         get.isEnabled = progress == null
+        get.text = if (progress != null) "Downloading…" else "Download"
     }
 
+    // Rows poll the shared download state, so progress keeps showing after rotation / leaving and coming back.
+    private val ticker = object : Runnable {
+        override fun run() {
+            Models.Kind.entries.forEach { refreshModelRow(it) }
+            a11yStatus.removeCallbacks(this)
+            val busy = Models.Kind.entries.any { Models.isDownloading(it) }
+            if (busy || android.os.SystemClock.uptimeMillis() < pollUntil) a11yStatus.postDelayed(this, 500)
+        }
+    }
+    private var pollUntil = 0L   // keep polling briefly after a tap, before the download thread registers
+
     private fun download(kind: Models.Kind) {
-        refreshModelRow(kind, 0f)
+        if (Models.isDownloading(kind)) return
+        val app = applicationContext
         Thread {
-            val error = runCatching { Models.download(this, kind) { p -> runOnUiThread { refreshModelRow(kind, p) } } }.exceptionOrNull()
-            runOnUiThread {
-                refreshModelRow(kind)
-                if (error != null) {
-                    android.util.Log.e("AiPoisoner", "${kind.label} download failed", error)
-                    Toast.makeText(this, "${kind.label}: ${error.message}", Toast.LENGTH_LONG).show()
-                }
-                else if (kind == Models.Kind.IMAGE) ImageScanService.instance?.refresh()
+            val error = runCatching { Models.download(app, kind) }.exceptionOrNull()
+            // The model may be ready even if this Activity is gone; the service should still pick it up.
+            if (error == null && kind == Models.Kind.IMAGE) runOnUiThread { ImageScanService.instance?.refresh() }
+            if (error != null) {
+                android.util.Log.e("AiPoisoner", "${kind.label} download failed", error)
+                runOnUiThread { Toast.makeText(app, "${kind.label}: ${error.message}", Toast.LENGTH_LONG).show() }
             }
         }.start()
+        pollUntil = android.os.SystemClock.uptimeMillis() + 3000
+        ticker.run()
     }
 
     private fun render(s: VoiceState.Snapshot) {
@@ -206,7 +222,11 @@ class MainActivity : Activity() {
         }
         detail.text = buildString {
             if (p != null) append("${(p * 100).toInt()}% AI (smoothed over ${s.windows} windows)  ·  ")
-            append(s.status.ifEmpty { "Choose a source to start" })
+            append(when {
+                s.status.isEmpty() -> "Choose a source to start"
+                !s.listening && s.status.startsWith("Listening") -> "Stopped"   // session ended normally
+                else -> s.status
+            })
         }
         transcript.text = (s.transcript + if (s.partial.isNotEmpty()) " " + s.partial + "…" else "").trim()
             .ifEmpty { if (s.listening) "…" else "The transcript will appear here." }

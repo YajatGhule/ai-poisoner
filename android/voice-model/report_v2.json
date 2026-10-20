@@ -1,0 +1,61 @@
+{
+ "layer": 3,
+ "l2": 0.3,
+ "cv_auc": 0.9998824697666744,
+ "sets": {
+  "clean": {
+   "auc": 0.9935553168635876,
+   "real (all) >= 0.4": 0.017543859649122806,
+   "real (all) >= 0.5": 0.0,
+   "real (all) >= 0.8": 0.0,
+   "real LibriSpeech-other >= 0.4": 0.0,
+   "real LibriSpeech-other >= 0.5": 0.0,
+   "real LibriSpeech-other >= 0.8": 0.0,
+   "real People's Speech >= 0.4": 0.05,
+   "real People's Speech >= 0.5": 0.0,
+   "real People's Speech >= 0.8": 0.0,
+   "AI Kokoro (unseen voices) >= 0.4": 1.0,
+   "AI Kokoro (unseen voices) >= 0.5": 1.0,
+   "AI Kokoro (unseen voices) >= 0.8": 1.0,
+   "AI MMS (unseen engine) >= 0.4": 0.6551724137931034,
+   "AI MMS (unseen engine) >= 0.5": 0.6206896551724138,
+   "AI MMS (unseen engine) >= 0.8": 0.3103448275862069
+  },
+  "noise floor + trimmed": {
+   "auc": 0.9778016469745793,
+   "real (all) >= 0.4": 0.07017543859649122,
+   "real (all) >= 0.5": 0.05263157894736842,
+   "real (all) >= 0.8": 0.0,
+   "real LibriSpeech-other >= 0.4": 0.05405405405405406,
+   "real LibriSpeech-other >= 0.5": 0.05405405405405406,
+   "real LibriSpeech-other >= 0.8": 0.0,
+   "real People's Speech >= 0.4": 0.1,
+   "real People's Speech >= 0.5": 0.05,
+   "real People's Speech >= 0.8": 0.0,
+   "AI Kokoro (unseen voices) >= 0.4": 1.0,
+   "AI Kokoro (unseen voices) >= 0.5": 1.0,
+   "AI Kokoro (unseen voices) >= 0.8": 1.0,
+   "AI MMS (unseen engine) >= 0.4": 0.7241379310344828,
+   "AI MMS (unseen engine) >= 0.5": 0.6896551724137931,
+   "AI MMS (unseen engine) >= 0.8": 0.41379310344827586
+  },
+  "phone": {
+   "auc": 0.9391335481561045,
+   "real (all) >= 0.4": 0.12280701754385964,
+   "real (all) >= 0.5": 0.07017543859649122,
+   "real (all) >= 0.8": 0.0,
+   "real LibriSpeech-other >= 0.4": 0.1891891891891892,
+   "real LibriSpeech-other >= 0.5": 0.10810810810810811,
+   "real LibriSpeech-other >= 0.8": 0.0,
+   "real People's Speech >= 0.4": 0.0,
+   "real People's Speech >= 0.5": 0.0,
+   "real People's Speech >= 0.8": 0.0,
+   "AI Kokoro (unseen voices) >= 0.4": 1.0,
+   "AI Kokoro (unseen voices) >= 0.5": 1.0,
+   "AI Kokoro (unseen voices) >= 0.8": 1.0,
+   "AI MMS (unseen engine) >= 0.4": 0.5517241379310345,
+   "AI MMS (unseen engine) >= 0.5": 0.4827586206896552,
+   "AI MMS (unseen engine) >= 0.8": 0.3448275862068966
+  }
+ }
+}

@@ -35,15 +35,20 @@ import kotlin.math.sqrt
  * Results go to [VoiceState]; the notification shows the current verdict.
  */
 class VoiceService : Service() {
-    @Volatile private var running = false
+    /** One listening run. Owns its stop flag so a late callback or slow worker can't affect a newer run. */
+    private class Session { val active = AtomicBoolean(true) }
+
+    private val lock = Any()
+    @Volatile private var session: Session? = null
     private var worker: Thread? = null
     private var projection: MediaProjection? = null
+    private var projectionCallback: MediaProjection.Callback? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            stopListening()
+            stopListening(reset = true)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
@@ -54,18 +59,26 @@ class VoiceService : Service() {
         // Must be in the foreground with the matching type *before* touching the mic / projection.
         val type = if (source == SOURCE_PLAYBACK) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
         else ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-        startForeground(NOTIFICATION_ID, notification("Listening…"), type)
+        try {
+            startForeground(NOTIFICATION_ID, notification("Listening…"), type)
+        } catch (e: Exception) {   // e.g. SecurityException when the mic/projection type isn't allowed right now
+            VoiceState.update { it.copy(listening = false, status = "Couldn't start: ${e.message}") }
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
+        val mine = Session()
         val record = try {
-            if (source == SOURCE_PLAYBACK) playbackRecord(intent) else micRecord()
+            if (source == SOURCE_PLAYBACK) playbackRecord(intent, mine) else micRecord()
         } catch (e: Exception) {
+            releaseProjection()
             VoiceState.update { it.copy(listening = false, status = "Couldn't start: ${e.message}") }
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }
-        running = true
-        worker = Thread({ listen(record, source) }, "voice-listener").apply { start() }
+        synchronized(lock) { session = mine }
+        worker = Thread({ listen(record, source, mine) }, "voice-listener").apply { start() }
         return START_NOT_STICKY
     }
 
@@ -77,17 +90,19 @@ class VoiceService : Service() {
     }
 
     @SuppressLint("MissingPermission")
-    private fun playbackRecord(intent: Intent): AudioRecord {
+    private fun playbackRecord(intent: Intent, mine: Session): AudioRecord {
         check(checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) { "microphone permission not granted" }
         val code = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
         val data = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
         else @Suppress("DEPRECATION") intent.getParcelableExtra(EXTRA_RESULT_DATA)
         val mp = getSystemService(MediaProjectionManager::class.java).getMediaProjection(code, requireNotNull(data) { "no capture permission" })
             ?: error("screen-capture permission was refused")
-        mp.registerCallback(object : MediaProjection.Callback() {
-            override fun onStop() { running = false }
-        }, Handler(Looper.getMainLooper()))
+        val cb = object : MediaProjection.Callback() {
+            override fun onStop() { mine.active.set(false) }   // only this session, never a newer one
+        }
+        mp.registerCallback(cb, Handler(Looper.getMainLooper()))
         projection = mp
+        projectionCallback = cb
         // Apps can opt out of capture; phone and VoIP calls are never capturable on Android.
         val config = AudioPlaybackCaptureConfiguration.Builder(mp)
             .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
@@ -110,14 +125,19 @@ class VoiceService : Service() {
     private fun bufferBytes(rate: Int = RATE) = maxOf(
         AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT), rate)
 
-    private fun listen(record: AudioRecord, source: String) {
+    /** Writes [VoiceState] only while [me] is still the live session, so stale workers can't clobber a newer one. */
+    private fun post(me: Session, change: (VoiceState.Snapshot) -> VoiceState.Snapshot) {
+        synchronized(lock) { if (session === me && me.active.get()) VoiceState.update(change) }
+    }
+
+    private fun listen(record: AudioRecord, source: String, me: Session) {
         val transcriber = load(Models.Kind.TRANSCRIBER) { Transcriber(it) }
         val detector = load(Models.Kind.VOICE) { VoiceDetector(it) }
         val missing = listOfNotNull(
             "AI-voice detector".takeIf { detector == null },
             "speech-to-text".takeIf { transcriber == null },
         )
-        VoiceState.update {
+        post(me) {
             VoiceState.Snapshot(
                 listening = true,
                 source = source,
@@ -138,15 +158,19 @@ class VoiceService : Service() {
         try {
             record.startRecording()
             if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) error("audio input is busy")
-            while (running) {
+            while (me.active.get()) {
                 val got = record.read(raw, 0, raw.size)
-                if (got <= 0) continue
+                if (got < 0) {   // ERROR_DEAD_OBJECT etc.: reading again would just spin
+                    post(me) { it.copy(status = "Stopped: audio input lost") }
+                    break
+                }
+                if (got == 0) continue
                 val n = downsampler?.process(raw, got, chunk) ?: got.also { System.arraycopy(raw, 0, chunk, 0, got) }
                 if (n <= 0) continue
 
                 transcriber?.let { t ->
                     val done = t.accept(chunk, n)
-                    VoiceState.update { s ->
+                    post(me) { s ->
                         if (done != null) s.copy(transcript = (s.transcript + " " + done).trim().takeLast(4000), partial = "")
                         else s.copy(partial = t.partial)
                     }
@@ -168,11 +192,13 @@ class VoiceService : Service() {
                         try {
                             val p = detector.score(clip)
                             Log.d(TAG, "voice window AI %.2f".format(p))
-                            VoiceState.update { s ->
-                                val smooth = s.smoothed?.let { it * 0.6f + p * 0.4f } ?: p
-                                s.copy(latest = p, smoothed = smooth, windows = s.windows + 1)
+                            if (me.active.get() && session === me) {
+                                post(me) { s ->
+                                    val smooth = s.smoothed?.let { it * 0.6f + p * 0.4f } ?: p
+                                    s.copy(latest = p, smoothed = smooth, windows = s.windows + 1)
+                                }
+                                notify(VoiceState.current)
                             }
-                            notify(VoiceState.current)
                         } catch (e: Exception) {
                             Log.e(TAG, "voice scoring failed", e)
                         } finally {
@@ -182,18 +208,27 @@ class VoiceService : Service() {
                 }
             }
         } catch (e: Exception) {
-            VoiceState.update { it.copy(status = "Stopped: ${e.message}") }
+            post(me) { it.copy(status = "Stopped: ${e.message}") }
         } finally {
+            me.active.set(false)
             runCatching { record.stop() }
             record.release()
+            // Close the model only once the scorer is really done with the ONNX session.
             scorer.shutdown()
-            scorer.awaitTermination(5, TimeUnit.SECONDS)
-            detector?.close()
+            var scorerDone = scorer.awaitTermination(5, TimeUnit.SECONDS)
+            if (!scorerDone) {
+                scorer.shutdownNow()
+                scorerDone = scorer.awaitTermination(60, TimeUnit.SECONDS)
+            }
+            if (scorerDone) detector?.close() else Log.w(TAG, "voice scorer still running; leaving detector open")
             transcriber?.close()
-            VoiceState.update { it.copy(listening = false, partial = "") }
             // Switching mic <-> phone audio starts a new session before this one finishes; don't kill it.
             Handler(Looper.getMainLooper()).post {
-                if (!running) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+                if (session === me) {
+                    stopListening(reset = true)
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
             }
         }
     }
@@ -221,16 +256,29 @@ class VoiceService : Service() {
         return silent * 100 > frames * 15
     }
 
-    private fun stopListening() {
-        running = false
-        worker?.join(2000)
-        worker = null
-        projection?.stop()
+    private fun releaseProjection() {
+        val mp = projection
+        projectionCallback?.let { cb -> mp?.unregisterCallback(cb) }   // so its late onStop can't fire
+        runCatching { mp?.stop() }
         projection = null
+        projectionCallback = null
+    }
+
+    /** [reset] also clears the UI state; skip it when a new session is about to take over. */
+    private fun stopListening(reset: Boolean = false) {
+        synchronized(lock) {
+            session?.active?.set(false)
+            session = null
+            if (reset) VoiceState.update { it.copy(listening = false, partial = "") }
+        }
+        releaseProjection()
+        // Short wait only; correctness comes from the session flag, not from the join.
+        worker?.join(500)
+        worker = null
     }
 
     override fun onDestroy() {
-        stopListening()
+        stopListening(reset = true)
         super.onDestroy()
     }
 

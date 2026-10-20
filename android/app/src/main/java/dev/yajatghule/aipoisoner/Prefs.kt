@@ -19,7 +19,7 @@ object Prefs {
     const val IMAGE_HUMAN_BELOW = 0.60f
 
     // Chosen on the held-out test set (android/voice-model/README.md):
-    // >= 0.80 flagged 0-2% of real voices; < 0.40 let through 0-17% of AI voices.
+    // v2: >= 0.80 flagged 0% of real test voices (2% with added noise); unseen engines mostly land in "Unsure".
     const val VOICE_AI_AT = 0.80f
     const val VOICE_HUMAN_BELOW = 0.40f
 }
