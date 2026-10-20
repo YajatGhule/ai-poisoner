@@ -7,6 +7,7 @@ import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.util.LruCache
 import android.view.Display
 import android.view.Gravity
@@ -28,6 +29,8 @@ class ImageScanService : AccessibilityService() {
     private var overlay: OverlayView? = null
     private var scanning = false
     private var lastShot = 0L
+    private var dirty = true
+    private var shownBoxes: List<Rect> = emptyList()
     private val scanTask = Runnable { scan() }
 
     override fun onServiceConnected() {
@@ -55,7 +58,8 @@ class ImageScanService : AccessibilityService() {
     private fun loadDetector() {
         if (detector != null || !Models.isReady(this, Models.Kind.IMAGE)) return
         worker.execute {
-            if (detector == null) detector = runCatching { ImageDetector(Models.file(this, Models.Kind.IMAGE)) }.getOrNull()
+            if (detector == null) detector = runCatching { ImageDetector(Models.file(this, Models.Kind.IMAGE)) }
+                .onFailure { Log.e(TAG, "image model failed to load", it) }.getOrNull()
         }
     }
 
@@ -63,7 +67,7 @@ class ImageScanService : AccessibilityService() {
         if (event.packageName == packageName) return
         when (event.eventType) {
             // Content moved: old badges would point at the wrong place.
-            AccessibilityEvent.TYPE_VIEW_SCROLLED, AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> overlay?.clear()
+            AccessibilityEvent.TYPE_VIEW_SCROLLED, AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> { overlay?.clear(); dirty = true }
         }
         main.removeCallbacks(scanTask)
         main.postDelayed(scanTask, SETTLE_MS)
@@ -81,12 +85,17 @@ class ImageScanService : AccessibilityService() {
         val boxes = ArrayList<Rect>()
         collectImages(root, boxes, minPx, 0)
         if (boxes.isEmpty()) { view.clear(); return }
+        // Pages fire content-changed events constantly. If nothing moved, don't screenshot again
+        // (but still recheck every few seconds, for carousels that swap pictures in place).
+        if (!dirty && boxes == shownBoxes && SystemClock.uptimeMillis() - lastShot < RECHECK_MS) return
+        Log.d(TAG, "scan ${root.packageName}: ${boxes.size} images")
 
         // takeScreenshot() is rate-limited (~3/s); wait out the gap instead of failing.
         val wait = SCREENSHOT_GAP_MS - (SystemClock.uptimeMillis() - lastShot)
         if (wait > 0) { main.postDelayed(scanTask, wait); return }
 
         scanning = true
+        dirty = false
         view.visibility = View.INVISIBLE       // keep our own badges out of the screenshot
         main.postDelayed({ capture(boxes.take(MAX_PER_SCAN), det) }, 48)
     }
@@ -100,18 +109,21 @@ class ImageScanService : AccessibilityService() {
                 val frame = hw?.copy(Bitmap.Config.ARGB_8888, false)
                 hw?.recycle()
                 shot.hardwareBuffer.close()
-                if (frame == null) { scanning = false; return }
+                if (frame == null) { Log.w(TAG, "could not read screenshot pixels"); scanning = false; return }
                 worker.execute {
                     val badges = boxes.mapNotNull { box -> scoreBox(frame, box, det) }
+                    Log.d(TAG, "frame ${frame.width}x${frame.height}: " + badges.joinToString { "%.2f@%s".format(it.score, it.bounds.toShortString()) })
                     frame.recycle()
                     main.post {
                         overlay?.show(badges)
+                        shownBoxes = boxes
                         scanning = false
                     }
                 }
             }
 
             override fun onFailure(errorCode: Int) {
+                Log.w(TAG, "screenshot failed: $errorCode")
                 overlay?.visibility = View.VISIBLE
                 scanning = false
                 if (errorCode == ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT) main.postDelayed(scanTask, SCREENSHOT_GAP_MS)
@@ -124,7 +136,8 @@ class ImageScanService : AccessibilityService() {
         if (!r.intersect(0, 0, frame.width, frame.height) || r.width() < 64 || r.height() < 64) return null
         val crop = Bitmap.createBitmap(frame, r.left, r.top, r.width(), r.height())
         val key = dHash(crop)
-        val score = cache.get(key) ?: runCatching { det.score(crop) }.getOrNull()?.also { cache.put(key, it) }
+        val score = cache.get(key) ?: runCatching { det.score(crop) }
+            .onFailure { Log.e(TAG, "scoring failed", it) }.getOrNull()?.also { cache.put(key, it) }
         crop.recycle()
         return score?.let { OverlayView.Badge(r, it) }
     }
@@ -159,7 +172,7 @@ class ImageScanService : AccessibilityService() {
     /** Called by MainActivity after the image model finishes downloading, or a setting changes. */
     fun refresh() {
         loadDetector()
-        main.post { overlay?.invalidate(); scan() }
+        main.post { dirty = true; overlay?.invalidate(); scan() }
     }
 
     override fun onInterrupt() {}
@@ -176,8 +189,10 @@ class ImageScanService : AccessibilityService() {
     companion object {
         private const val SETTLE_MS = 600L
         private const val SCREENSHOT_GAP_MS = 350L
+        private const val RECHECK_MS = 5000L
         private const val MIN_DP = 96
         private const val MAX_PER_SCAN = 8
+        private const val TAG = "AiPoisoner"
 
         @Volatile var instance: ImageScanService? = null
             private set

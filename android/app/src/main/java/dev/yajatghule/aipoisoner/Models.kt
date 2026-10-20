@@ -1,6 +1,7 @@
 package dev.yajatghule.aipoisoner
 
 import android.content.Context
+import android.util.Log
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -48,17 +49,46 @@ object Models {
         val target = file(ctx, kind)
         if (target.exists()) return
         val part = File(dir(ctx), kind.fileName + if (kind.zipped) ".zip.part" else ".part")
+        // Mobile connections drop; resume from where we stopped instead of starting over.
+        var attempt = 0
+        while (true) {
+            try {
+                fetch(kind, part, onProgress)
+                break
+            } catch (e: IOException) {
+                Log.w(TAG, "${kind.label}: download attempt ${attempt + 1} failed", e)
+                if (++attempt >= 4) throw e
+                Thread.sleep(2000L * attempt)
+            }
+        }
+        if (kind.zipped) {
+            unzip(part, dir(ctx))
+            part.delete()
+            if (!target.exists()) throw IOException("${kind.label}: archive did not contain ${kind.fileName}")
+        } else if (!part.renameTo(target)) {
+            throw IOException("Could not save ${kind.label}")
+        }
+        onProgress(1f)
+    }
+
+    private fun fetch(kind: Kind, part: File, onProgress: (Float) -> Unit) {
+        val have = if (part.exists()) part.length() else 0L
         val conn = URL(kind.url).openConnection() as HttpURLConnection
         conn.connectTimeout = 20_000
-        conn.readTimeout = 30_000
+        conn.readTimeout = 60_000
         conn.instanceFollowRedirects = true
+        if (have > 0) conn.setRequestProperty("Range", "bytes=$have-")
         try {
-            if (conn.responseCode !in 200..299) throw IOException("HTTP ${conn.responseCode} for ${kind.label}")
-            val total = conn.contentLengthLong.takeIf { it > 0 } ?: (kind.approxMb * 1_000_000L)
+            val code = conn.responseCode
+            if (code !in 200..299) throw IOException("HTTP $code for ${kind.label}")
+            val resumed = code == HttpURLConnection.HTTP_PARTIAL
+            val start = if (resumed) have else 0L
+            val length = conn.contentLengthLong
+            val total = if (length > 0) start + length else kind.approxMb * 1_000_000L
             conn.inputStream.use { input ->
-                part.outputStream().use { out ->
+                java.io.FileOutputStream(part, resumed).use { out ->
                     val buf = ByteArray(64 * 1024)
-                    var done = 0L
+                    var done = start
                     var lastReport = 0L
                     while (true) {
                         val n = input.read(buf)
@@ -70,20 +100,15 @@ object Models {
                             onProgress((done.toFloat() / total).coerceAtMost(0.99f))
                         }
                     }
+                    if (length > 0 && done != total) throw IOException("${kind.label}: connection closed early")
                 }
             }
         } finally {
             conn.disconnect()
         }
-        if (kind.zipped) {
-            unzip(part, dir(ctx))
-            part.delete()
-            if (!target.exists()) throw IOException("${kind.label}: archive did not contain ${kind.fileName}")
-        } else if (!part.renameTo(target)) {
-            throw IOException("Could not save ${kind.label}")
-        }
-        onProgress(1f)
     }
+
+    private const val TAG = "AiPoisoner"
 
     private fun unzip(zip: File, into: File) {
         val root = into.canonicalPath + File.separator

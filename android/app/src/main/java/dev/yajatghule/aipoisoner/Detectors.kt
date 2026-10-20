@@ -22,10 +22,15 @@ class ImageDetector(model: File) : AutoCloseable {
 
     /** Probability the image is AI-generated. Not thread-safe; call from one thread. */
     fun score(bitmap: Bitmap): Float {
-        val scaled = Bitmap.createScaledBitmap(bitmap, SIZE, SIZE, true)
+        // Centre square first: squashing a cropped, downscaled on-screen card to 224x224 pushed real photos
+        // towards "AI" in testing; a square crop kept the aspect ratio and halved false alarms.
+        val side = minOf(bitmap.width, bitmap.height)
+        val square = Bitmap.createBitmap(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side)
+        val scaled = Bitmap.createScaledBitmap(square, SIZE, SIZE, true)
         val px = IntArray(SIZE * SIZE)
         scaled.getPixels(px, 0, SIZE, 0, 0, SIZE, SIZE)
-        if (scaled !== bitmap) scaled.recycle()
+        if (scaled !== square) scaled.recycle()
+        if (square !== bitmap) square.recycle()
         val plane = SIZE * SIZE
         val data = FloatBuffer.allocate(3 * plane)
         for (i in 0 until plane) {

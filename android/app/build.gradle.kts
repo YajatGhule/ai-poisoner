@@ -16,6 +16,17 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
 
+    // One small APK per CPU type (arm64-v8a fits almost every phone from the last ~8 years),
+    // plus a universal APK that works everywhere but is about three times bigger.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

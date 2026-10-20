@@ -14,6 +14,7 @@ import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
 import android.widget.Button
 import android.widget.CompoundButton
 import android.widget.LinearLayout
@@ -132,7 +133,15 @@ class MainActivity : Activity() {
                 "Verdicts are estimates from a small model, not proof. Don't accuse anyone based on this alone.",
             12f, MUTE).apply { setPadding(0, px(16), 0, 0) }
 
-        return ScrollView(this).apply { addView(col) }
+        return ScrollView(this).apply {
+            addView(col)
+            // Android 15 draws apps edge-to-edge; keep content clear of the status and navigation bars.
+            setOnApplyWindowInsetsListener { _, insets ->
+                val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+                col.setPadding(px(20) + bars.left, px(28) + bars.top, px(20) + bars.right, px(32) + bars.bottom)
+                insets
+            }
+        }
     }
 
     private fun modelRow(kind: Models.Kind): View {
@@ -167,7 +176,10 @@ class MainActivity : Activity() {
             val error = runCatching { Models.download(this, kind) { p -> runOnUiThread { refreshModelRow(kind, p) } } }.exceptionOrNull()
             runOnUiThread {
                 refreshModelRow(kind)
-                if (error != null) Toast.makeText(this, "${kind.label}: ${error.message}", Toast.LENGTH_LONG).show()
+                if (error != null) {
+                    android.util.Log.e("AiPoisoner", "${kind.label} download failed", error)
+                    Toast.makeText(this, "${kind.label}: ${error.message}", Toast.LENGTH_LONG).show()
+                }
                 else if (kind == Models.Kind.IMAGE) ImageScanService.instance?.refresh()
             }
         }.start()

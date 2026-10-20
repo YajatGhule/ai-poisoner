@@ -22,6 +22,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -93,19 +94,21 @@ class VoiceService : Service() {
             .addMatchingUsage(AudioAttributes.USAGE_GAME)
             .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
             .build()
+        // Capture at the mixer's native 48 kHz and downsample ourselves: asking the
+        // playback-capture device for 16 kHz directly returned silence in testing.
         return AudioRecord.Builder()
             .setAudioFormat(AudioFormat.Builder()
                 .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                .setSampleRate(RATE)
+                .setSampleRate(CAPTURE_RATE)
                 .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
                 .build())
-            .setBufferSizeInBytes(bufferBytes())
+            .setBufferSizeInBytes(bufferBytes(CAPTURE_RATE))
             .setAudioPlaybackCaptureConfig(config)
             .build()
     }
 
-    private fun bufferBytes() = maxOf(
-        AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT), RATE)
+    private fun bufferBytes(rate: Int = RATE) = maxOf(
+        AudioRecord.getMinBufferSize(rate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT), rate)
 
     private fun listen(record: AudioRecord, source: String) {
         val transcriber = load(Models.Kind.TRANSCRIBER) { Transcriber(it) }
@@ -122,7 +125,10 @@ class VoiceService : Service() {
             )
         }
 
-        val chunk = ShortArray(RATE / 10)               // 100 ms
+        val inRate = record.sampleRate
+        val downsampler = if (inRate != RATE) Downsampler(inRate / RATE) else null
+        val raw = ShortArray(inRate / 10)               // 100 ms at the capture rate
+        val chunk = ShortArray(RATE / 10 + 8)           // 100 ms at 16 kHz
         val window = FloatArray(WINDOW)                  // last 4 s, oldest first
         var filled = 0
         var sinceScore = 0
@@ -133,7 +139,9 @@ class VoiceService : Service() {
             record.startRecording()
             if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) error("audio input is busy")
             while (running) {
-                val n = record.read(chunk, 0, chunk.size)
+                val got = record.read(raw, 0, raw.size)
+                if (got <= 0) continue
+                val n = downsampler?.process(raw, got, chunk) ?: got.also { System.arraycopy(raw, 0, chunk, 0, got) }
                 if (n <= 0) continue
 
                 transcriber?.let { t ->
@@ -151,18 +159,22 @@ class VoiceService : Service() {
 
                 if (detector != null && filled == WINDOW && sinceScore >= HOP && !busy.get()) {
                     sinceScore = 0
-                    if (rms(window) < SILENCE) continue          // nothing to judge
+                    // Skip quiet windows, and windows with stretches of digital silence (a video ending,
+                    // dropouts): in testing those made real voices look synthetic.
+                    if (rms(window, 0, WINDOW) < SILENCE || gappy(window)) continue
                     val clip = window.copyOf()
                     busy.set(true)
                     scorer.execute {
                         try {
                             val p = detector.score(clip)
+                            Log.d(TAG, "voice window AI %.2f".format(p))
                             VoiceState.update { s ->
                                 val smooth = s.smoothed?.let { it * 0.6f + p * 0.4f } ?: p
                                 s.copy(latest = p, smoothed = smooth, windows = s.windows + 1)
                             }
                             notify(VoiceState.current)
-                        } catch (_: Exception) {
+                        } catch (e: Exception) {
+                            Log.e(TAG, "voice scoring failed", e)
                         } finally {
                             busy.set(false)
                         }
@@ -189,10 +201,24 @@ class VoiceService : Service() {
     private fun <T> load(kind: Models.Kind, make: (java.io.File) -> T): T? =
         if (Models.isReady(this, kind)) runCatching { make(Models.file(this, kind)) }.getOrNull() else null
 
-    private fun rms(x: FloatArray): Float {
+    private fun rms(x: FloatArray, from: Int, to: Int): Float {
         var s = 0.0
-        for (v in x) s += v * v
-        return sqrt(s / x.size).toFloat()
+        for (i in from until to) s += x[i] * x[i]
+        return sqrt(s / (to - from)).toFloat()
+    }
+
+    /** True if more than 15% of the 100 ms frames are near digital silence (below about -70 dBFS). */
+    private fun gappy(x: FloatArray): Boolean {
+        val frame = RATE / 10
+        var silent = 0
+        var frames = 0
+        var i = 0
+        while (i + frame <= x.size) {
+            if (rms(x, i, i + frame) < 3e-4f) silent++
+            frames++
+            i += frame
+        }
+        return silent * 100 > frames * 15
     }
 
     private fun stopListening() {
@@ -237,10 +263,12 @@ class VoiceService : Service() {
     }
 
     companion object {
-        const val RATE = 16000
+        const val RATE = 16000                          // what both models expect
+        private const val CAPTURE_RATE = 48000
         private const val WINDOW = RATE * 4             // model sees 4 s
         private const val HOP = RATE * 2                // new verdict every 2 s
         private const val SILENCE = 0.01f
+        private const val TAG = "AiPoisoner"
         private const val NOTIFICATION_ID = 7
         private const val CHANNEL = "voice"
 

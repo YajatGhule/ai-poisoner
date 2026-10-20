@@ -48,15 +48,34 @@ def norm(x):
     return ((x - x.mean()) / np.sqrt(x.var() + 1e-7)).astype(np.float32)
 
 
+def trim(x, thr=1e-3):
+    """Drop near-silent 20 ms frames. TTS output has stretches of exact digital silence that real recordings
+    never have; v1 of this model partly learned that shortcut (see README)."""
+    fr = 320
+    keep = [x[i:i + fr] for i in range(0, len(x) - fr, fr) if np.sqrt((x[i:i + fr] ** 2).mean()) > thr]
+    return np.concatenate(keep) if keep else x
+
+
+def noisy(x, rng):
+    """Silences trimmed + a random noise floor (-75..-45 dBFS), applied to real AND AI clips alike."""
+    t = trim(x)
+    return (t + rng.normal(0, 10 ** (rng.uniform(-75, -45) / 20), len(t))).astype(np.float32)
+
+
 def load_split(split):
     items = [(f, 0) for f in sorted(glob.glob(f'{DATA}/{split}/real/*.wav'))] + \
             [(f, 1) for f in sorted(glob.glob(f'{DATA}/{split}/fake_raw/*.wav'))]
-    clean, tel = [], []
+    rng = np.random.default_rng(1 if split == 'train' else 2)
+    clean, noise, tel = [], [], []
     for f, y in items:
-        x = crop(read(f))
-        clean.append((norm(x), y, os.path.basename(f)))
-        tel.append((norm(crop(phone(x))), y, os.path.basename(f)))
-    return clean, tel
+        raw = read(f)
+        x = crop(raw)
+        n = crop(noisy(raw, rng))
+        name = os.path.basename(f)
+        clean.append((norm(x), y, name))
+        noise.append((norm(n), y, name))
+        tel.append((norm(crop(phone(n))), y, name))
+    return clean, noise, tel
 
 
 w2v = Wav2Vec2Model.from_pretrained('facebook/wav2vec2-base').eval()
@@ -72,12 +91,13 @@ def feats(batch):
     return np.stack(out)  # [N, NL, 1536]
 
 
-print('loading audio + phone-quality copies ...', flush=True)
-tr_clean, tr_tel = load_split('train')
-te_clean, te_tel = load_split('test')
-print(f'train {len(tr_clean)} (+{len(tr_tel)} phone)  test {len(te_clean)} (+{len(te_tel)} phone)', flush=True)
-F = {k: feats(v) for k, v in [('trc', tr_clean), ('trt', tr_tel), ('tec', te_clean), ('tet', te_tel)]}
-Y = {k: np.array([y for _, y, _ in v]) for k, v in [('trc', tr_clean), ('trt', tr_tel), ('tec', te_clean), ('tet', te_tel)]}
+print('loading audio + noisy + phone-quality copies ...', flush=True)
+tr_clean, tr_noise, tr_tel = load_split('train')
+te_clean, te_noise, te_tel = load_split('test')
+print(f'train {len(tr_clean)} x3  test {len(te_clean)} x3', flush=True)
+SETS = [('trc', tr_clean), ('trn', tr_noise), ('trt', tr_tel), ('tec', te_clean), ('ten', te_noise), ('tet', te_tel)]
+F = {k: feats(v) for k, v in SETS}
+Y = {k: np.array([y for _, y, _ in v]) for k, v in SETS}
 names_te = [n for _, _, n in te_clean]
 
 
@@ -106,12 +126,12 @@ def auc(p, y):
 
 
 # Pick layer + regularisation by speaker-disjoint cross-validation on TRAIN only (test stays untouched).
-Xtr_all = np.concatenate([F['trc'], F['trt']]); ytr = np.concatenate([Y['trc'], Y['trt']])
+Xtr_all = np.concatenate([F['trc'], F['trn'], F['trt']]); ytr = np.concatenate([Y['trc'], Y['trn'], Y['trt']])
 def group_of(name):
     # real "ls_0012.wav" / fake "kokoro_af_bella_ls_0012.wav" -> same group; 8 consecutive rows ~ one speaker/recording
     src, idx = name[:-4].split('_')[-2:]
     return f'{src}{int(idx) // 8}'
-groups = np.array([group_of(n) for _, _, n in tr_clean] * 2)
+groups = np.array([group_of(n) for _, _, n in tr_clean] * 3)
 uniq = sorted(set(groups)); random.shuffle(uniq); folds = [set(uniq[i::4]) for i in range(4)]
 best = None
 for layer in range(1, NL):
@@ -129,7 +149,7 @@ model = fit_lr(Xtr_all[:, LAYER], ytr, L2)
 
 # ---- held-out evaluation ----
 report = {'layer': LAYER, 'l2': L2, 'cv_auc': best[0], 'sets': {}}
-for tag, key in (('clean', 'tec'), ('phone', 'tet')):
+for tag, key in (('clean', 'tec'), ('noise floor + trimmed', 'ten'), ('phone', 'tet')):
     p = predict(model, F[key][:, LAYER]); y = Y[key]
     groups_te = {'real (all)': y == 0,
                  'real LibriSpeech-other': np.array([n.startswith('lso') for n in names_te]),
@@ -140,7 +160,7 @@ for tag, key in (('clean', 'tec'), ('phone', 'tet')):
     print(f'\n[{tag}] AUC {auc(p, y):.3f}')
     for name, m in groups_te.items():
         if m.sum() == 0: continue
-        for th in (0.5, 0.8):
+        for th in (0.4, 0.5, 0.8):
             frac = float((p[m] >= th).mean())
             report['sets'][tag][f'{name} >= {th}'] = frac
         print(f'  {name:28} n={m.sum():3}  flagged AI@0.5 {np.mean(p[m] >= .5):5.0%}  @0.8 {np.mean(p[m] >= .8):5.0%}  median {np.median(p[m]):.2f}')

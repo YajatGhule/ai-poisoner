@@ -13,8 +13,9 @@ object Prefs {
     fun coverAi(ctx: Context) = sp(ctx).getBoolean("cover", false)
     fun setCoverAi(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean("cover", on).apply()
 
-    // Same bands as the Chrome extension.
-    const val IMAGE_AI_AT = 0.85f
+    // Stricter than the Chrome extension (0.85): on-screen crops are downscaled and cropped, which pushes
+    // real photos up. At 0.95, 0% of real test photos were flagged AI (45% of AI images caught); the rest show "Unsure".
+    const val IMAGE_AI_AT = 0.95f
     const val IMAGE_HUMAN_BELOW = 0.60f
 
     // Chosen on the held-out test set (android/voice-model/README.md):
