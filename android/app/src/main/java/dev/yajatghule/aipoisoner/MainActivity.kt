@@ -17,6 +17,7 @@ import android.view.ViewGroup
 import android.view.WindowInsets
 import android.widget.Button
 import android.widget.CompoundButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -41,6 +42,26 @@ class MainActivity : Activity() {
     private var pending: (() -> Unit)? = null
     private val onVoice: (VoiceState.Snapshot) -> Unit = { render(it) }
 
+    // "Check a file" views; results come from FileCheckState so they survive rotation.
+    private lateinit var fileName: TextView
+    private lateinit var fileStatus: TextView
+    private lateinit var fileProgress: ProgressBar
+    private lateinit var fileCancel: Button
+    private lateinit var fileNotice: TextView
+    private lateinit var fileThumb: ImageView
+    private lateinit var fileVerdict: TextView
+    private lateinit var fileLine: TextView
+    private lateinit var fileDetail: TextView
+    private lateinit var fileTimeline: TimelineView
+    private lateinit var fileDuration: TextView
+    /** Slot for a future AI-music detector: fill it with text and set it VISIBLE. */
+    private lateinit var musicLine: TextView
+    private lateinit var fileTranscriptHead: TextView
+    private lateinit var fileTranscript: TextView
+    private lateinit var fileTranscriptToggle: Button
+    private var transcriptExpanded = false
+    private val onFile: (FileCheckState.Snapshot) -> Unit = { renderFile(it) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Thread { Models.removeOutdated(this) }.start()
@@ -54,11 +75,13 @@ class MainActivity : Activity() {
         a11yStatus.setTextColor(if (imageServiceOn()) GREEN else MUTE)
         ticker.run()
         VoiceState.observe(onVoice)
+        FileCheckState.observe(onFile)
     }
 
     override fun onPause() {
         a11yStatus.removeCallbacks(ticker)
         VoiceState.remove(onVoice)
+        FileCheckState.remove(onFile)
         super.onPause()
     }
 
@@ -142,6 +165,8 @@ class MainActivity : Activity() {
                 "Verdicts are estimates from a small model, not proof. Don't accuse anyone based on this alone.",
             12f, MUTE).apply { setPadding(0, px(16), 0, 0) }
 
+        buildFileSection(col)
+
         return ScrollView(this).apply {
             addView(col)
             // Android 15 draws apps edge-to-edge; keep content clear of the status and navigation bars.
@@ -151,6 +176,129 @@ class MainActivity : Activity() {
                 insets
             }
         }
+    }
+
+    private fun buildFileSection(col: LinearLayout) {
+        col += section("Check a file")
+        col += label("Pick an image, audio or video file. Images are checked for AI metadata and by the image detector; " +
+            "audio and video get the same whole-recording voice check and a transcript. The file stays on your phone.", 13f, MUTE)
+        col += button("Choose a file") { chooseFile() }
+        fileName = label("", 14f, INK).apply { setPadding(0, px(10), 0, px(2)) }
+        col += fileName
+        fileStatus = label("", 13f, MUTE)
+        col += fileStatus
+        fileProgress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100 }
+        col += fileProgress
+        fileCancel = button("Cancel") { FileCheck.cancel() }
+        col += fileCancel
+        fileNotice = label("", 14f, GOLD)
+        col += fileNotice
+
+        fileThumb = ImageView(this).apply {
+            adjustViewBounds = true
+            maxHeight = px(200)
+            scaleType = ImageView.ScaleType.FIT_START
+            visibility = View.GONE
+        }
+        col += fileThumb
+        fileVerdict = TextView(this).apply {
+            textSize = 26f
+            typeface = Typeface.create(Typeface.SERIF, Typeface.NORMAL)
+            setTextColor(INK)
+            setPadding(0, px(14), 0, px(6))
+        }
+        col += fileVerdict
+        fileLine = label("", 13f, INK)
+        col += fileLine
+        fileTimeline = TimelineView(this).apply { visibility = View.GONE }
+        col += fileTimeline
+        fileDetail = label("", 12f, MUTE)
+        col += fileDetail
+        fileDuration = label("", 12f, MUTE)
+        col += fileDuration
+        musicLine = label("", 13f, INK).apply { visibility = View.GONE }   // music detector plugs in here
+        col += musicLine
+        fileTranscriptHead = label("TRANSCRIPT", 11f, MUTE, mono = true).apply { setPadding(0, px(18), 0, px(6)) }
+        col += fileTranscriptHead
+        fileTranscript = TextView(this).apply {
+            textSize = 15f
+            setTextColor(INK)
+            setLineSpacing(0f, 1.25f)
+            background = card()
+            setPadding(px(14), px(12), px(14), px(12))
+        }
+        col += fileTranscript
+        fileTranscriptToggle = button("Show full transcript") {
+            transcriptExpanded = !transcriptExpanded
+            renderFile(FileCheckState.current)
+        }
+        col += fileTranscriptToggle
+    }
+
+    private fun chooseFile() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "audio/*", "video/*"))
+        }
+        @Suppress("DEPRECATION")
+        startActivityForResult(intent, REQ_FILE)
+    }
+
+    private fun renderFile(s: FileCheckState.Snapshot) {
+        fun show(v: View, on: Boolean) { v.visibility = if (on) View.VISIBLE else View.GONE }
+        fun text(v: TextView, t: String?) { v.text = t ?: ""; show(v, !t.isNullOrEmpty()) }
+        text(fileName, if (s.name.isEmpty()) null else listOf(s.name, FileCheck.formatSize(s.sizeBytes)).filter { it.isNotEmpty() }.joinToString("  ·  "))
+        show(fileProgress, s.busy)
+        show(fileCancel, s.busy)
+        fileProgress.isIndeterminate = s.progress < 0f
+        if (s.progress >= 0f) fileProgress.progress = (s.progress * 100).toInt()
+        text(fileStatus, if (!s.busy) null else if (s.progress >= 0f) "Analysing… ${(s.progress * 100).toInt()}%" else s.stage)
+        text(fileNotice, s.error ?: s.notice)
+        fileNotice.setTextColor(if (s.error != null) Verdict.AI.color else GOLD)
+
+        // Image result
+        val bmp = s.thumbnail
+        if (s.isImage && bmp != null) fileThumb.setImageBitmap(bmp) else fileThumb.setImageDrawable(null)
+        show(fileThumb, s.isImage && bmp != null)
+
+        // Audio / video result
+        val sum = s.summary
+        val audio = !s.isImage && s.name.isNotEmpty() && s.error == null && (sum.count + sum.skipped > 0 || s.durationSec > 0f)
+        val iv = s.imageVerdict
+        when {
+            s.isImage && iv != null -> {
+                fileVerdict.text = when (iv) {
+                    Verdict.AI -> "Likely AI-generated"
+                    Verdict.UNSURE -> "Unsure"
+                    Verdict.HUMAN -> "Likely not AI"
+                }
+                fileVerdict.setTextColor(iv.color)
+                text(fileLine, "${((s.imageScore ?: 0f) * 100).toInt()}% AI  ·  ${s.imageReason}")
+            }
+            audio -> {
+                val whole = sum.verdict
+                fileVerdict.text = sum.headline() ?: sum.describe()
+                fileVerdict.setTextColor(if (sum.partlyAi) Verdict.AI.color else whole?.color ?: INK)
+                text(fileLine, if (sum.headline() == null) null else listOfNotNull(sum.describe(), sum.describeStretches()).joinToString("\n"))
+            }
+            else -> { fileVerdict.text = ""; text(fileLine, if (s.isImage) s.imageReason else null) }
+        }
+        show(fileVerdict, fileVerdict.text.isNotEmpty())
+        fileTimeline.show(if (audio) sum.scores else emptyList())
+        text(fileDetail, if (audio && sum.skipped > 0) "${sum.skipped} quiet or broken-up windows were skipped" else null)
+        text(fileDuration, if (audio && s.durationSec > 0f) "Duration ${Speech.clock(s.durationSec)}" else null)
+        text(musicLine, if (audio) s.music else null)
+
+        // Transcript, shortened until asked for
+        val full = s.transcript
+        val showTranscript = audio && full.isNotEmpty()
+        show(fileTranscriptHead, showTranscript)
+        show(fileTranscript, showTranscript)
+        val long = full.length > TRANSCRIPT_PREVIEW
+        fileTranscript.text = if (long && !transcriptExpanded) full.take(TRANSCRIPT_PREVIEW).trimEnd() + "…" else full
+        show(fileTranscriptToggle, showTranscript && long)
+        fileTranscriptToggle.text = if (transcriptExpanded) "Show less" else "Show full transcript"
     }
 
     private fun modelRow(kind: Models.Kind): View {
@@ -285,6 +433,10 @@ class MainActivity : Activity() {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQ_CAPTURE && resultCode == RESULT_OK && data != null) VoiceService.startPlayback(this, resultCode, data)
+        if (requestCode == REQ_FILE && resultCode == RESULT_OK) data?.data?.let {
+            transcriptExpanded = false
+            FileCheck.start(applicationContext, it)
+        }
     }
 
     private fun imageServiceOn(): Boolean {
@@ -342,6 +494,8 @@ class MainActivity : Activity() {
     companion object {
         private const val REQ_PERMS = 1
         private const val REQ_CAPTURE = 2
+        private const val REQ_FILE = 3
+        private const val TRANSCRIPT_PREVIEW = 800
         private const val INK = 0xFFEDE7DB.toInt()
         private const val MUTE = 0xFF8D867C.toInt()
         private const val GOLD = 0xFFC9A45C.toInt()

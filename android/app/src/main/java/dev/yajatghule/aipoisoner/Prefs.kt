@@ -18,6 +18,10 @@ object Prefs {
     const val IMAGE_AI_AT = 0.95f
     const val IMAGE_HUMAN_BELOW = 0.60f
 
+    // A chosen file is the original image (not a downscaled screen crop), so the Chrome extension's cutoffs apply.
+    const val IMAGE_FILE_AI_AT = 0.85f
+    const val IMAGE_FILE_HUMAN_BELOW = 0.60f
+
     // Chosen on the held-out test set (android/voice-model/README.md):
     // v2: >= 0.80 flagged 0% of real test voices (2% with added noise); unseen engines mostly land in "Unsure".
     const val VOICE_AI_AT = 0.80f
@@ -31,6 +35,7 @@ enum class Verdict(val label: String, val color: Int) {
 
     companion object {
         fun image(p: Float) = band(p, Prefs.IMAGE_AI_AT, Prefs.IMAGE_HUMAN_BELOW)
+        fun imageFile(p: Float) = band(p, Prefs.IMAGE_FILE_AI_AT, Prefs.IMAGE_FILE_HUMAN_BELOW)
         fun voice(p: Float) = band(p, Prefs.VOICE_AI_AT, Prefs.VOICE_HUMAN_BELOW)
         private fun band(p: Float, aiAt: Float, humanBelow: Float) =
             if (p >= aiAt) AI else if (p < humanBelow) HUMAN else UNSURE
