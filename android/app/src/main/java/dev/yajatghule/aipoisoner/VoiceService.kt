@@ -26,7 +26,6 @@ import android.util.Log
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.sqrt
 
 /**
  * Listens to the microphone, or to audio other apps are playing, and continuously:
@@ -152,6 +151,7 @@ class VoiceService : Service() {
         val window = FloatArray(WINDOW)                  // last 4 s, oldest first
         var filled = 0
         var sinceScore = 0
+        var heard = 0L                                   // samples at 16 kHz since the session started
         val scorer = Executors.newSingleThreadExecutor()
         val busy = AtomicBoolean(false)
 
@@ -171,7 +171,8 @@ class VoiceService : Service() {
                 transcriber?.let { t ->
                     val done = t.accept(chunk, n)
                     post(me) { s ->
-                        if (done != null) s.copy(transcript = (s.transcript + " " + done).trim().takeLast(4000), partial = "")
+                        // Keep long speeches: ~20k characters is roughly 50 minutes of talking.
+                        if (done != null) s.copy(transcript = (s.transcript + " " + done).trim().takeLast(20_000), partial = "")
                         else s.copy(partial = t.partial)
                     }
                 }
@@ -180,13 +181,17 @@ class VoiceService : Service() {
                 for (i in 0 until n) window[WINDOW - n + i] = chunk[i] / 32768f
                 filled = minOf(WINDOW, filled + n)
                 sinceScore += n
+                heard += n
+                if (heard % RATE < n) post(me) { it.copy(heardSec = heard.toFloat() / RATE) }   // about once a second
 
                 if (detector != null && filled == WINDOW && sinceScore >= HOP && !busy.get()) {
                     sinceScore = 0
-                    // Skip quiet windows, and windows with stretches of digital silence (a video ending,
-                    // dropouts): in testing those made real voices look synthetic.
-                    if (rms(window, 0, WINDOW) < SILENCE || gappy(window)) continue
+                    if (!Speech.usable(window, 0, WINDOW)) {
+                        post(me) { it.copy(summary = it.summary.plusSkipped()) }
+                        continue
+                    }
                     val clip = window.copyOf()
+                    val startSec = (heard - WINDOW).toFloat() / RATE
                     busy.set(true)
                     scorer.execute {
                         try {
@@ -195,7 +200,8 @@ class VoiceService : Service() {
                             if (me.active.get() && session === me) {
                                 post(me) { s ->
                                     val smooth = s.smoothed?.let { it * 0.6f + p * 0.4f } ?: p
-                                    s.copy(latest = p, smoothed = smooth, windows = s.windows + 1)
+                                    s.copy(latest = p, smoothed = smooth, windows = s.windows + 1,
+                                        summary = s.summary.plus(startSec, p))
                                 }
                                 notify(VoiceState.current)
                             }
@@ -235,26 +241,6 @@ class VoiceService : Service() {
 
     private fun <T> load(kind: Models.Kind, make: (java.io.File) -> T): T? =
         if (Models.isReady(this, kind)) runCatching { make(Models.file(this, kind)) }.getOrNull() else null
-
-    private fun rms(x: FloatArray, from: Int, to: Int): Float {
-        var s = 0.0
-        for (i in from until to) s += x[i] * x[i]
-        return sqrt(s / (to - from)).toFloat()
-    }
-
-    /** True if more than 15% of the 100 ms frames are near digital silence (below about -70 dBFS). */
-    private fun gappy(x: FloatArray): Boolean {
-        val frame = RATE / 10
-        var silent = 0
-        var frames = 0
-        var i = 0
-        while (i + frame <= x.size) {
-            if (rms(x, i, i + frame) < 3e-4f) silent++
-            frames++
-            i += frame
-        }
-        return silent * 100 > frames * 15
-    }
 
     private fun releaseProjection() {
         val mp = projection
@@ -311,11 +297,10 @@ class VoiceService : Service() {
     }
 
     companion object {
-        const val RATE = 16000                          // what both models expect
+        const val RATE = Speech.RATE
         private const val CAPTURE_RATE = 48000
-        private const val WINDOW = RATE * 4             // model sees 4 s
-        private const val HOP = RATE * 2                // new verdict every 2 s
-        private const val SILENCE = 0.01f
+        private const val WINDOW = Speech.WINDOW
+        private const val HOP = Speech.HOP
         private const val TAG = "AiPoisoner"
         private const val NOTIFICATION_ID = 7
         private const val CHANNEL = "voice"

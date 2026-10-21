@@ -31,6 +31,8 @@ class MainActivity : Activity() {
     private lateinit var verdict: TextView
     private lateinit var meter: ProgressBar
     private lateinit var detail: TextView
+    private lateinit var sessionLine: TextView
+    private lateinit var timeline: TimelineView
     private lateinit var transcript: TextView
     private lateinit var listenMic: Button
     private lateinit var listenPhone: Button
@@ -98,7 +100,8 @@ class MainActivity : Activity() {
 
         // Voice
         col += section("Voice check")
-        col += label("Is this voice real? Listens in 4-second windows and transcribes as it goes.", 13f, MUTE)
+        col += label("Is this voice real? Works for long speeches: every 4-second stretch is checked, the verdict covers " +
+            "the whole recording, and any parts that sound AI are listed with times.", 13f, MUTE)
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         listenMic = button("Microphone") { withAudioPermission { VoiceService.startMic(this) } }
         listenPhone = button("Phone audio") { withAudioPermission { askForPlaybackCapture() } }
@@ -117,6 +120,10 @@ class MainActivity : Activity() {
         col += verdict
         meter = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100 }
         col += meter
+        sessionLine = label("", 13f, INK)
+        col += sessionLine
+        timeline = TimelineView(this).apply { visibility = View.GONE }
+        col += timeline
         detail = label("", 12f, MUTE)
         col += detail
         col += label("TRANSCRIPT", 11f, MUTE, mono = true).apply { setPadding(0, px(18), 0, px(6)) }
@@ -201,27 +208,41 @@ class MainActivity : Activity() {
         ticker.run()
     }
 
+    private fun verdictText(v: Verdict) = when (v) {
+        Verdict.AI -> "Likely an AI voice"
+        Verdict.UNSURE -> "Unsure"
+        Verdict.HUMAN -> "Likely a human voice"
+    }
+
     private fun render(s: VoiceState.Snapshot) {
         listenMic.isEnabled = !s.listening || s.source != VoiceService.SOURCE_MIC
         listenPhone.isEnabled = !s.listening || s.source != VoiceService.SOURCE_PLAYBACK
         stop.visibility = if (s.listening) View.VISIBLE else View.GONE
+        // Headline = the whole session so far (stable over a long speech); "right now" goes in the detail line.
         val p = s.smoothed
-        if (p == null) {
-            verdict.text = if (s.listening) "Listening…" else "Not listening"
-            verdict.setTextColor(INK)
-            meter.progress = 0
-        } else {
-            val v = Verdict.voice(p)
-            verdict.text = when (v) {
-                Verdict.AI -> "Likely an AI voice"
-                Verdict.UNSURE -> "Unsure"
-                Verdict.HUMAN -> "Likely a human voice"
+        val whole = s.summary.verdict
+        when {
+            whole != null -> {
+                verdict.text = verdictText(whole)
+                verdict.setTextColor(whole.color)
             }
-            verdict.setTextColor(v.color)
-            meter.progress = (p * 100).toInt()
+            p != null -> {
+                verdict.text = verdictText(Verdict.voice(p))
+                verdict.setTextColor(Verdict.voice(p).color)
+            }
+            else -> {
+                verdict.text = if (s.listening) "Listening…" else "Not listening"
+                verdict.setTextColor(INK)
+            }
         }
+        meter.progress = ((s.summary.median ?: p ?: 0f) * 100).toInt()
+        sessionLine.text = if (s.summary.count + s.summary.skipped == 0) "" else
+            listOfNotNull(s.summary.describe(), s.summary.describeStretches()).joinToString("\n")
+        sessionLine.visibility = if (sessionLine.text.isEmpty()) View.GONE else View.VISIBLE
+        timeline.show(s.summary.scores)
         detail.text = buildString {
-            if (p != null) append("${(p * 100).toInt()}% AI (smoothed over ${s.windows} windows)  ·  ")
+            if (p != null) append("Right now: ${(p * 100).toInt()}% AI  ·  ")
+            if (s.heardSec > 0) append("${Speech.clock(s.heardSec)} heard  ·  ")
             append(when {
                 s.status.isEmpty() -> "Choose a source to start"
                 !s.listening && s.status.startsWith("Listening") -> "Stopped"   // session ended normally

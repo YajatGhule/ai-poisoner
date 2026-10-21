@@ -14,9 +14,13 @@ object VoiceState {
         val partial: String = "",
         /** AI probability of the latest 4-second window. */
         val latest: Float? = null,
-        /** Smoothed over recent windows; this is what the verdict uses. */
+        /** Smoothed over the last few windows: the "right now" verdict. */
         val smoothed: Float? = null,
         val windows: Int = 0,
+        /** Every window of this session: the whole-speech verdict, AI stretches and timeline. */
+        val summary: SpeechSummary = SpeechSummary(),
+        /** Seconds of audio heard this session. */
+        val heardSec: Float = 0f,
     )
 
     @Volatile
