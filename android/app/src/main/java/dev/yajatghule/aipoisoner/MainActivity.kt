@@ -223,8 +223,8 @@ class MainActivity : Activity() {
         val whole = s.summary.verdict
         when {
             whole != null -> {
-                verdict.text = verdictText(whole)
-                verdict.setTextColor(whole.color)
+                verdict.text = s.summary.headline()
+                verdict.setTextColor(if (s.summary.partlyAi) Verdict.AI.color else whole.color)
             }
             p != null -> {
                 verdict.text = verdictText(Verdict.voice(p))

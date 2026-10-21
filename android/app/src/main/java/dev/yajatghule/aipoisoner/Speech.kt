@@ -106,7 +106,8 @@ data class SpeechSummary(
             val a = starts[i]
             val b = a + win
             val last = out.lastOrNull()
-            if (last != null && a <= last.endInclusive) out[out.size - 1] = last.start..maxOf(last.endInclusive, b)
+            // Bridge a single borderline window (one hop) so one segment isn't reported as two.
+            if (last != null && a <= last.endInclusive + MERGE_GAP_SEC) out[out.size - 1] = last.start..maxOf(last.endInclusive, b)
             else out += a..b
         }
         return out
@@ -127,16 +128,26 @@ data class SpeechSummary(
             }
         }
 
-    /** One line for the UI, e.g. "Likely human · 2% of 85 windows sound AI". */
+    /**
+     * Mostly real, but with a sustained AI-sounding stretch (e.g. a cloned voice spliced into a real speech).
+     * The overall verdict stays Unsure, but the headline should say where to look.
+     */
+    val partlyAi: Boolean
+        get() = verdict == Verdict.UNSURE &&
+            aiStretches().sumOf { (it.endInclusive - it.start).toDouble() } >= PARTLY_AI_MIN_SEC
+
+    /** Headline for the whole recording. */
+    fun headline(): String? = when (verdict) {
+        null -> null
+        Verdict.AI -> "Likely an AI voice"
+        Verdict.HUMAN -> "Likely a human voice"
+        Verdict.UNSURE -> if (partlyAi) "Parts sound AI" else "Unsure"
+    }
+
+    /** One line for the UI, e.g. "Likely a human voice · 2% of 85 windows sound AI". */
     fun describe(): String {
-        val v = verdict ?: return if (count == 0) "Not enough clear speech yet" else "Need a few more seconds of speech ($count of $MIN_WINDOWS windows)"
-        val pct = (aiShare * 100).toInt()
-        val head = when (v) {
-            Verdict.AI -> "Likely an AI voice"
-            Verdict.UNSURE -> "Unsure"
-            Verdict.HUMAN -> "Likely a human voice"
-        }
-        return "$head · $pct% of $count windows sound AI"
+        val head = headline() ?: return if (count == 0) "Not enough clear speech yet" else "Need a few more seconds of speech ($count of $MIN_WINDOWS windows)"
+        return "$head · ${(aiShare * 100).toInt()}% of $count windows sound AI"
     }
 
     /** "Sounds AI at 0:42–1:10, 3:05–3:13" (at most [max] ranges), or null if no window sounds AI. */
@@ -147,5 +158,9 @@ data class SpeechSummary(
         return "Sounds AI at $shown" + if (s.size > max) " and ${s.size - max} more" else ""
     }
 
-    companion object { const val MIN_WINDOWS = 3 }
+    companion object {
+        const val MIN_WINDOWS = 3
+        private const val MERGE_GAP_SEC = 2f       // one hop
+        private const val PARTLY_AI_MIN_SEC = 8.0  // at least two windows' worth of AI-sounding speech
+    }
 }
