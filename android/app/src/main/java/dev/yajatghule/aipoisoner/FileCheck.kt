@@ -32,7 +32,10 @@ object FileCheck {
             active?.cancelled = true
             active = null
         }
-        FileCheckState.update { it.copy(busy = false, progress = -1f, stage = "", notice = "Cancelled.") }
+        // Drop the half-finished results: a verdict from a few windows would look like a real answer.
+        FileCheckState.update {
+            FileCheckState.Snapshot(name = it.name, sizeBytes = it.sizeBytes, isImage = it.isImage, notice = "Cancelled.")
+        }
     }
 
     /** "12.4 MB". */
