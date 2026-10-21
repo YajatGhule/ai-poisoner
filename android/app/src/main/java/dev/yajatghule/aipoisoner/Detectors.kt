@@ -81,3 +81,38 @@ class VoiceDetector(model: File) : AutoCloseable {
 
     override fun close() = session.close()
 }
+
+/**
+ * AI-music classifier (SONICS SpecTTTra-alpha-5s). Input: 5 s of 16 kHz mono PCM; the spectrogram is computed
+ * inside the graph. Output: probability the music is AI-generated. A whole song is the mean over its windows.
+ */
+class MusicDetector(model: File) : AutoCloseable {
+    private val env = OrtEnvironment.getEnvironment()
+    private val session = env.createSession(model.absolutePath, OrtSession.SessionOptions().apply { setIntraOpNumThreads(2) })
+
+    /** [window] must be exactly [WINDOW] samples. Not thread-safe; call from one thread. */
+    fun score(window: FloatArray): Float {
+        require(window.size == WINDOW) { "music window must be $WINDOW samples" }
+        OnnxTensor.createTensor(env, FloatBuffer.wrap(window), longArrayOf(1, WINDOW.toLong())).use { input ->
+            session.run(mapOf("pcm" to input)).use { out ->
+                @Suppress("UNCHECKED_CAST")
+                return (out["prob_ai"].get().value as Array<FloatArray>)[0][0]
+            }
+        }
+    }
+
+    override fun close() = session.close()
+
+    companion object {
+        const val WINDOW = 5 * Speech.RATE
+        const val MAX_WINDOWS = 12
+        const val SILENCE_RMS = 1e-3f
+
+        /** "Music: Likely AI-generated (87%)". */
+        fun describe(p: Float): String = "Music: " + when (Verdict.music(p)) {
+            Verdict.AI -> "Likely AI-generated (${(p * 100).toInt()}%)"
+            Verdict.UNSURE -> "Unsure (${(p * 100).toInt()}% AI)"
+            Verdict.HUMAN -> "Likely human-made (${(p * 100).toInt()}% AI)"
+        }
+    }
+}

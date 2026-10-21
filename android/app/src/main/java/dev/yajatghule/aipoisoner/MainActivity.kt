@@ -35,6 +35,7 @@ class MainActivity : Activity() {
     private lateinit var sessionLine: TextView
     private lateinit var timeline: TimelineView
     private lateinit var transcript: TextView
+    private lateinit var liveMusic: TextView
     private lateinit var listenMic: Button
     private lateinit var listenPhone: Button
     private lateinit var stop: Button
@@ -54,7 +55,7 @@ class MainActivity : Activity() {
     private lateinit var fileDetail: TextView
     private lateinit var fileTimeline: TimelineView
     private lateinit var fileDuration: TextView
-    /** Slot for a future AI-music detector: fill it with text and set it VISIBLE. */
+    /** File-check music verdict; hidden unless the music model scored the file. */
     private lateinit var musicLine: TextView
     private lateinit var fileTranscriptHead: TextView
     private lateinit var fileTranscript: TextView
@@ -145,6 +146,8 @@ class MainActivity : Activity() {
         col += meter
         sessionLine = label("", 13f, INK)
         col += sessionLine
+        liveMusic = label("", 13f, INK).apply { visibility = View.GONE }
+        col += liveMusic
         timeline = TimelineView(this).apply { visibility = View.GONE }
         col += timeline
         detail = label("", 12f, MUTE)
@@ -216,7 +219,7 @@ class MainActivity : Activity() {
         col += fileDetail
         fileDuration = label("", 12f, MUTE)
         col += fileDuration
-        musicLine = label("", 13f, INK).apply { visibility = View.GONE }   // music detector plugs in here
+        musicLine = label("", 13f, INK).apply { visibility = View.GONE }
         col += musicLine
         fileTranscriptHead = label("TRANSCRIPT", 11f, MUTE, mono = true).apply { setPadding(0, px(18), 0, px(6)) }
         col += fileTranscriptHead
@@ -387,6 +390,10 @@ class MainActivity : Activity() {
         sessionLine.text = if (s.summary.count + s.summary.skipped == 0) "" else
             listOfNotNull(s.summary.describe(), s.summary.describeStretches()).joinToString("\n")
         sessionLine.visibility = if (sessionLine.text.isEmpty()) View.GONE else View.VISIBLE
+        // Music is noisy until a few windows are in, so hold the line back until 3 are scored.
+        val m = s.musicMean
+        liveMusic.text = if (m != null && s.musicWindows >= 3) MusicDetector.describe(m) else ""
+        liveMusic.visibility = if (liveMusic.text.isEmpty()) View.GONE else View.VISIBLE
         timeline.show(s.summary.scores)
         detail.text = buildString {
             if (p != null) append("Right now: ${(p * 100).toInt()}% AI  ·  ")

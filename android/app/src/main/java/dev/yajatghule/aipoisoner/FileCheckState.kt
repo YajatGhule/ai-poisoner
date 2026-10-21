@@ -31,7 +31,7 @@ object FileCheckState {
         val summary: SpeechSummary = SpeechSummary(),
         val durationSec: Float = 0f,
         val transcript: String = "",
-        /** Reserved for a future AI-music detector; the UI keeps its line hidden while this is null. */
+        /** "Music: Likely AI-generated (87%)"; the UI keeps its line hidden while this is null. */
         val music: String? = null,
     )
 

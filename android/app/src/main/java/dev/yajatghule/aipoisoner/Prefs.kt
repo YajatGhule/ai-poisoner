@@ -26,6 +26,10 @@ object Prefs {
     // v2: >= 0.80 flagged 0% of real test voices (2% with added noise); unseen engines mostly land in "Unsure".
     const val VOICE_AI_AT = 0.80f
     const val VOICE_HUMAN_BELOW = 0.40f
+
+    // AI-music detector (SONICS SpecTTTra-alpha-5s): song score = mean over 5 s windows; AI >= 0.80, Human <= 0.30.
+    const val MUSIC_AI_AT = 0.80f
+    const val MUSIC_HUMAN_AT = 0.30f
 }
 
 enum class Verdict(val label: String, val color: Int) {
@@ -37,6 +41,7 @@ enum class Verdict(val label: String, val color: Int) {
         fun image(p: Float) = band(p, Prefs.IMAGE_AI_AT, Prefs.IMAGE_HUMAN_BELOW)
         fun imageFile(p: Float) = band(p, Prefs.IMAGE_FILE_AI_AT, Prefs.IMAGE_FILE_HUMAN_BELOW)
         fun voice(p: Float) = band(p, Prefs.VOICE_AI_AT, Prefs.VOICE_HUMAN_BELOW)
+        fun music(p: Float) = if (p >= Prefs.MUSIC_AI_AT) AI else if (p <= Prefs.MUSIC_HUMAN_AT) HUMAN else UNSURE
         private fun band(p: Float, aiAt: Float, humanBelow: Float) =
             if (p >= aiAt) AI else if (p < humanBelow) HUMAN else UNSURE
     }

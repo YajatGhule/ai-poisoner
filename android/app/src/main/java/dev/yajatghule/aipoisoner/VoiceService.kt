@@ -132,6 +132,7 @@ class VoiceService : Service() {
     private fun listen(record: AudioRecord, source: String, me: Session) {
         val transcriber = load(Models.Kind.TRANSCRIBER) { Transcriber(it) }
         val detector = load(Models.Kind.VOICE) { VoiceDetector(it) }
+        val music = load(Models.Kind.MUSIC) { MusicDetector(it) }   // optional: not listed in "missing"
         val missing = listOfNotNull(
             "AI-voice detector".takeIf { detector == null },
             "speech-to-text".takeIf { transcriber == null },
@@ -154,6 +155,14 @@ class VoiceService : Service() {
         var heard = 0L                                   // samples at 16 kHz since the session started
         val scorer = Executors.newSingleThreadExecutor()
         val busy = AtomicBoolean(false)
+        // Music: a circular 5 s buffer, scored on its own thread about every 10 s so it never delays voice windows.
+        val musicRing = FloatArray(MusicDetector.WINDOW)
+        var musicPos = 0
+        var lastMusicAt = 0L
+        var musicSum = 0.0
+        var musicCount = 0
+        val musicScorer = if (music != null) Executors.newSingleThreadExecutor() else null
+        val musicBusy = AtomicBoolean(false)
 
         try {
             record.startRecording()
@@ -179,10 +188,39 @@ class VoiceService : Service() {
 
                 System.arraycopy(window, n, window, 0, WINDOW - n)
                 for (i in 0 until n) window[WINDOW - n + i] = chunk[i] / 32768f
+                if (music != null) for (i in 0 until n) {
+                    musicRing[musicPos] = chunk[i] / 32768f
+                    musicPos = (musicPos + 1) % musicRing.size
+                }
                 filled = minOf(WINDOW, filled + n)
                 sinceScore += n
                 heard += n
                 if (heard % RATE < n) post(me) { it.copy(heardSec = heard.toFloat() / RATE) }   // about once a second
+
+                if (music != null && musicScorer != null && heard - lastMusicAt >= MUSIC_EVERY && heard >= musicRing.size && !musicBusy.get()) {
+                    lastMusicAt = heard
+                    val clip = FloatArray(musicRing.size)       // oldest first
+                    System.arraycopy(musicRing, musicPos, clip, 0, clip.size - musicPos)
+                    System.arraycopy(musicRing, 0, clip, clip.size - musicPos, musicPos)
+                    if (Speech.rms(clip, 0, clip.size) >= MusicDetector.SILENCE_RMS) {
+                        musicBusy.set(true)
+                        musicScorer.execute {
+                            try {
+                                val p = music.score(clip)
+                                Log.d(TAG, "music window AI %.2f".format(p))
+                                musicSum += p
+                                musicCount++
+                                val mean = (musicSum / musicCount).toFloat()
+                                val count = musicCount
+                                post(me) { it.copy(musicMean = mean, musicWindows = count) }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "music scoring failed", e)
+                            } finally {
+                                musicBusy.set(false)
+                            }
+                        }
+                    }
+                }
 
                 if (detector != null && filled == WINDOW && sinceScore >= HOP && !busy.get()) {
                     sinceScore = 0
@@ -228,6 +266,12 @@ class VoiceService : Service() {
             }
             if (scorerDone) detector?.close() else Log.w(TAG, "voice scorer still running; leaving detector open")
             transcriber?.close()
+            musicScorer?.let { ex ->
+                ex.shutdown()
+                var done = ex.awaitTermination(5, TimeUnit.SECONDS)
+                if (!done) { ex.shutdownNow(); done = ex.awaitTermination(60, TimeUnit.SECONDS) }
+                if (done) music?.close() else Log.w(TAG, "music scorer still running; leaving detector open")
+            }
             // Switching mic <-> phone audio starts a new session before this one finishes; don't kill it.
             Handler(Looper.getMainLooper()).post {
                 if (session === me) {
@@ -301,6 +345,7 @@ class VoiceService : Service() {
         private const val CAPTURE_RATE = 48000
         private const val WINDOW = Speech.WINDOW
         private const val HOP = Speech.HOP
+        private const val MUSIC_EVERY = 10L * Speech.RATE     // samples between music windows
         private const val TAG = "AiPoisoner"
         private const val NOTIFICATION_ID = 7
         private const val CHANNEL = "voice"

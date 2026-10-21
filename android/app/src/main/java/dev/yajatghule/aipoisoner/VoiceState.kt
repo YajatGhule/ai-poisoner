@@ -21,6 +21,9 @@ object VoiceState {
         val summary: SpeechSummary = SpeechSummary(),
         /** Seconds of audio heard this session. */
         val heardSec: Float = 0f,
+        /** Running mean AI probability over the 5 s music windows scored this session (null until the first). */
+        val musicMean: Float? = null,
+        val musicWindows: Int = 0,
     )
 
     @Volatile

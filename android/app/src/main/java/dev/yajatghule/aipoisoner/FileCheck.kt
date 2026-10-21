@@ -8,6 +8,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.IOException
 
 /** What the metadata of an image says about how it was made. */
@@ -186,6 +187,20 @@ object FileCheck {
 
     // ---------------- audio and video ----------------
 
+    private fun scoreMusic(model: File, windows: List<FloatArray>, job: Job) {
+        if (windows.isEmpty()) return
+        post(job) { it.copy(stage = "Checking for AI music…") }
+        MusicDetector(model).use { detector ->
+            var sum = 0f
+            for (w in windows) {
+                if (job.cancelled) return
+                sum += detector.score(w)
+            }
+            val p = sum / windows.size
+            post(job) { it.copy(music = MusicDetector.describe(p)) }
+        }
+    }
+
     private fun checkAudio(app: Context, uri: Uri, job: Job) {
         if (!Models.isReady(app, Models.Kind.VOICE)) {
             post(job) { it.copy(notice = "Download the AI-voice detector above first.") }
@@ -197,6 +212,9 @@ object FileCheck {
         } else null
         val text = StringBuilder()
         var shorts = ShortArray(0)
+        // Music is optional: without its model the file is still checked for a voice.
+        val musicFile = Models.file(app, Models.Kind.MUSIC).takeIf { Models.isReady(app, Models.Kind.MUSIC) }
+        val music = if (musicFile != null) MusicStream() else null
         try {
             VoiceDetector(Models.file(app, Models.Kind.VOICE)).use { detector ->
                 val stream = SpeechStream(detector) { s -> post(job) { it.copy(summary = s) } }
@@ -208,6 +226,7 @@ object FileCheck {
                     },
                     onChunk = { chunk ->
                         stream.push(chunk)
+                        music?.push(chunk)
                         val t = transcriber
                         if (t != null && text.length < MAX_TRANSCRIPT_CHARS) {
                             if (shorts.size < chunk.size) shorts = ShortArray(chunk.size)
@@ -227,6 +246,7 @@ object FileCheck {
                     ?.let { text.append(if (text.isEmpty()) "" else " ").append(it) }
                 val finalText = text.toString().take(MAX_TRANSCRIPT_CHARS)
                 post(job) { it.copy(summary = summary, durationSec = seconds, transcript = finalText, progress = 1f) }
+                if (music != null && musicFile != null) scoreMusic(musicFile, music.finish(), job)
             }
         } finally {
             runCatching { transcriber?.close() }
