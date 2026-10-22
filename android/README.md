@@ -16,9 +16,9 @@ The Android version of the AI Poisoner detector. Everything runs **on the phone*
 4. **AI-music detection.** Songs are scored by a model trained to spot Suno/Udio-style generated music, for
    files and, while listening, for whatever the phone is playing.
 
-> **Status: built and tested on an emulator, not yet on a physical phone.** The app builds from the command line
-> and was tested on an Android 15 emulator (x86_64, Google APIs). Real phones differ (cameras, vendors' Android
-> skins, audio apps), so expect some rough edges.
+> **Status: alpha (v0.3.0-alpha).** Tested on an Android 15 emulator and on one real phone (iQOO Z5,
+> Android 13). File checks, music detection and image labels work on the phone; live listening with
+> *Phone audio* has only been verified on the emulator so far. Expect rough edges on other phones.
 
 ## How it works
 
