@@ -32,6 +32,8 @@ class ImageScanService : AccessibilityService() {
     @Volatile private var destroyed = false
     private var lastShot = 0L
     private var dirty = true
+    /** Bumped whenever content moves; a scan that started before that holds boxes for the old layout. */
+    @Volatile private var epoch = 0
     private var shownBoxes: List<Rect> = emptyList()
     private val scanTask = Runnable { scan() }
 
@@ -69,7 +71,7 @@ class ImageScanService : AccessibilityService() {
         if (event.packageName == packageName) return
         when (event.eventType) {
             // Content moved: old badges would point at the wrong place.
-            AccessibilityEvent.TYPE_VIEW_SCROLLED, AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> { overlay?.clear(); dirty = true }
+            AccessibilityEvent.TYPE_VIEW_SCROLLED, AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> { epoch++; overlay?.clear(); dirty = true }
         }
         main.removeCallbacks(scanTask)
         main.postDelayed(scanTask, SETTLE_MS)
@@ -105,6 +107,7 @@ class ImageScanService : AccessibilityService() {
     private fun capture(boxes: List<Rect>, det: ImageDetector) {
         if (destroyed) return
         lastShot = SystemClock.uptimeMillis()
+        val startEpoch = epoch
         try {
             takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
                 override fun onSuccess(shot: ScreenshotResult) {
@@ -131,7 +134,10 @@ class ImageScanService : AccessibilityService() {
                             } finally {
                                 frame.recycle()
                                 main.post {
-                                    if (!destroyed) { overlay?.show(badges); shownBoxes = boxes }
+                                    if (!destroyed) {
+                                        if (epoch == startEpoch) { overlay?.show(badges); shownBoxes = boxes }
+                                        else { dirty = true; main.removeCallbacks(scanTask); main.postDelayed(scanTask, SETTLE_MS) }   // scrolled meanwhile: boxes are stale
+                                    }
                                     scanning = false
                                 }
                             }
