@@ -40,9 +40,14 @@ VoiceService (foreground service)
 | `ImageScanService.kt` | Accessibility service: finds images, screenshots, scores, caches by perceptual hash |
 | `OverlayView.kt` | Draws badges (and the optional "AI image hidden" cover) over other apps |
 | `VoiceService.kt` | Foreground service that records the mic or other apps' audio and runs both models |
-| `Detectors.kt` | ONNX Runtime wrappers for the image and voice models |
+| `Detectors.kt` | ONNX Runtime wrappers for the image, voice and music models |
+| `Speech.kt` | Whole-recording voice verdict: window scoring, AI stretches, headline |
+| `TimelineView.kt` | Per-window bar chart of voice scores |
+| `FileCheck.kt` / `FileCheckState.kt` | "Check a file": runs in the background and survives rotation |
+| `AudioFileDecoder.kt` | Streams any audio/video file to 16 kHz mono with MediaCodec |
+| `SpeechStream.kt` / `MusicStream.kt` | Feed decoded audio to the voice scorer and pick music windows |
 | `Transcriber.kt` | Vosk speech-to-text wrapper |
-| `Models.kt` | Downloads the three models on first use (they are not bundled, so the APK stays small) |
+| `Models.kt` | Downloads the four models on first use (they are not bundled, so the APK stays small) |
 | `voice-model/` | How the AI-voice model was trained and evaluated |
 
 ### Models (downloaded inside the app)
@@ -52,6 +57,7 @@ VoiceService (foreground service)
 | Image detector | 87 MB | [`onnx-community/ai-image-detection-ONNX`](https://huggingface.co/onnx-community/ai-image-detection-ONNX) (8-bit) |
 | AI-voice detector | 122 MB | trained for this project ([details and accuracy](voice-model/README.md)), published as a [release asset](https://github.com/YajatGhule/ai-poisoner/releases/tag/voice-model-v2) |
 | Speech-to-text | 40 MB | [Vosk small English](https://alphacephei.com/vosk/models) |
+| AI-music detector | 35 MB | [SONICS SpecTTTra-α 5 s](https://huggingface.co/awsaf49/sonics-spectttra-alpha-5s) (MIT), exported to ONNX, published as a [release asset](https://github.com/YajatGhule/ai-poisoner/releases/tag/music-model-v1) |
 
 ## Building the APK
 
