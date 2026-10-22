@@ -10,7 +10,7 @@ import java.util.Collections
 import java.util.zip.ZipInputStream
 
 /**
- * The three on-device models. They are downloaded once (not bundled) so the APK stays small.
+ * The on-device models. They are downloaded once (not bundled) so the APK stays small.
  */
 object Models {
     enum class Kind(
@@ -35,6 +35,11 @@ object Models {
             "Speech-to-text (English)",
             "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",
             "vosk-model-small-en-us-0.15", 40, zipped = true,
+        ),
+        MUSIC(
+            "AI-music detector",
+            "https://github.com/YajatGhule/ai-poisoner/releases/download/music-model-v1/ai_music_detector.onnx",
+            "ai_music_detector.onnx", 35,
         ),
     }
 
