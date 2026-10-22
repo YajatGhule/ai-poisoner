@@ -1,12 +1,20 @@
 # AI Poisoner for Android
 
-The Android version of the AI Poisoner detector. Two features, both running **on the phone**:
+The Android version of the AI Poisoner detector. Everything runs **on the phone**:
 
 1. **Image labels in any app.** An Accessibility Service finds the pictures on screen (Instagram, Chrome,
    WhatsApp, anything), screenshots just those boxes, and draws an **AI / Unsure / Human** badge on each one.
-   It uses the same model as the Chrome extension. Optionally it **hides** images rated AI.
+   It uses the same model as the Chrome extension, draws a **coloured box** around each rated image and can
+   optionally **hide** images rated AI.
 2. **Voice check.** It listens to the **microphone** or to **audio other apps are playing** (YouTube, Reels,
    voice notes) and shows a live verdict, *likely AI voice* or *likely human*, plus a **live transcript**.
+   Long speeches are judged as a whole: every 4-second stretch is scored, and parts that sound AI are listed
+   with timestamps (*"Parts sound AI · 0:58–1:24"*), so an AI clip spliced into a real speech isn't averaged away.
+3. **Check a file.** Pick an image, audio or video file (or *Share → Check for AI* from any app). Images get a
+   metadata check (IPTC/C2PA "AI-generated" tags) plus the image model; audio and video get the whole-recording
+   voice check, a transcript and an **AI-music** score.
+4. **AI-music detection.** Songs are scored by a model trained to spot Suno/Udio-style generated music, for
+   files and, while listening, for whatever the phone is playing.
 
 > **Status: built and tested on an emulator, not yet on a physical phone.** The app builds from the command line
 > and was tested on an Android 15 emulator (x86_64, Google APIs). Real phones differ (cameras, vendors' Android
