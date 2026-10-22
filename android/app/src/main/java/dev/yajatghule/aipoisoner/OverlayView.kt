@@ -32,6 +32,15 @@ class OverlayView(context: Context) : View(context) {
         textSize = 13 * dp
         textAlign = Paint.Align.CENTER
     }
+    private val boxShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 4.5f * dp
+        color = 0x66000000
+    }
+    private val box = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2.5f * dp
+    }
 
     fun show(next: List<Badge>) {
         badges = next
@@ -55,6 +64,12 @@ class OverlayView(context: Context) : View(context) {
                 canvas.drawRect(b.bounds, cover)
                 canvas.drawText("AI image hidden", b.bounds.exactCenterX(), b.bounds.exactCenterY(), coverText)
             }
+            // Outline first so the pill draws on top of it.
+            val r = 10 * dp
+            val outline = RectF(b.bounds).apply { inset(box.strokeWidth / 2, box.strokeWidth / 2) }
+            canvas.drawRoundRect(outline, r, r, boxShadow)
+            box.color = if (v == Verdict.HUMAN) (v.color and 0xFFFFFF) or (0x8C shl 24) else v.color
+            canvas.drawRoundRect(outline, r, r, box)
             val label = if (v == Verdict.HUMAN) v.label else "${v.label} ${(b.score * 100).toInt()}%"
             val pad = 8 * dp
             val w = text.measureText(label) + 26 * dp
