@@ -67,6 +67,26 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         Thread { Models.removeOutdated(this) }.start()
         setContentView(buildUi())
+        if (savedInstanceState == null) checkShared(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        checkShared(intent)
+    }
+
+    /** A file shared to the app ("Share → AI Poisoner") or opened with it goes straight to the file check. */
+    private fun checkShared(intent: Intent?) {
+        val uri = when (intent?.action) {
+            Intent.ACTION_SEND -> @Suppress("DEPRECATION") (intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM))
+            Intent.ACTION_VIEW -> intent.data
+            // Debug builds only: `adb shell am start -n …/.MainActivity --es path /sdcard/Android/data/<pkg>/files/x.m4a`
+            // (the app's own folder needs no permission), so demos and tests can skip the system picker.
+            else -> intent?.getStringExtra("path")?.takeIf { applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 }
+                ?.let { android.net.Uri.fromFile(java.io.File(it)) }
+        } ?: return
+        transcriptExpanded = false
+        FileCheck.start(applicationContext, uri)
     }
 
     override fun onResume() {
@@ -173,9 +193,12 @@ class MainActivity : Activity() {
         return ScrollView(this).apply {
             addView(col)
             // Android 15 draws apps edge-to-edge; keep content clear of the status and navigation bars.
-            setOnApplyWindowInsetsListener { _, insets ->
+            // The bar insets go on the scroll view (clipped), so scrolled text never slides under the clock.
+            clipToPadding = true
+            setOnApplyWindowInsetsListener { v, insets ->
                 val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
-                col.setPadding(px(20) + bars.left, px(28) + bars.top, px(20) + bars.right, px(32) + bars.bottom)
+                v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                col.setPadding(px(20), px(28), px(20), px(32))
                 insets
             }
         }
