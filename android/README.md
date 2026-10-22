@@ -102,7 +102,7 @@ Not sure which one you have? Use **universal**. It always works.
 
 1. On the phone, open the release page, download the APK and open it. Android will ask you to allow installing
    from this source (your browser or file manager). Allow it, then install.
-2. Open **AI Poisoner** and tap **Download** next to each model (about 250 MB in total, once; use Wi-Fi).
+2. Open **AI Poisoner** and tap **Download** next to each model (about 285 MB in total, once; use Wi-Fi).
 3. **Image labels:** tap *Open Accessibility settings* → *Installed apps* → **AI Poisoner image labels** → turn it on.
    - If the switch is **greyed out**, Android is blocking it because the app came from an APK (Android 13+).
      Go to *Settings → Apps → AI Poisoner → ⋮ (top right) → Allow restricted settings*, then try again.
@@ -128,7 +128,12 @@ Not sure which one you have? Use **universal**. It always works.
 - `takeScreenshot()` is limited to about 3 per second, so badges appear about half a second after scrolling stops.
 - Images are found through the accessibility tree. Apps that draw images in a way that isn't reported
   (some games, custom canvases) won't get badges.
-- **Both detectors are estimates, not proof.** For the voice detector, see the measured accuracy in
+- **AI-music detection catches Suno well but often misses short Udio clips**, and it was not tested on mainstream
+  commercial music. In a small check (15 real, 39 AI songs) no real song scored above 0.65; the app calls a song AI
+  at 0.80 or more. Treat "Unsure" as unknown, not as "probably real".
+- **Real photos can still be labelled AI on some phones.** On the iQOO Z5 one real photo on the test page scored
+  95%. A stronger image model is the main item on the list below.
+- **All detectors are estimates, not proof.** For the voice detector, see the measured accuracy in
   [voice-model/README.md](voice-model/README.md). It was not tested on commercial voice cloning. Never use a verdict alone to accuse someone.
 
 ## What could make it better
