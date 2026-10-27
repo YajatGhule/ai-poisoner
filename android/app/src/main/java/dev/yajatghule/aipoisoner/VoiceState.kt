@@ -24,7 +24,11 @@ object VoiceState {
         /** Running mean AI probability over the 5 s music windows scored this session (null until the first). */
         val musicMean: Float? = null,
         val musicWindows: Int = 0,
+        /** Per-window AI scores of the music check (last [MAX_MUSIC_SCORES]); only set when source is the music mic. */
+        val musicScores: List<Float> = emptyList(),
     )
+
+    const val MAX_MUSIC_SCORES = 120
 
     @Volatile
     var current = Snapshot()

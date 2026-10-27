@@ -15,6 +15,9 @@ class TimelineView(context: Context) : View(context) {
     private val bar = Paint(Paint.ANTI_ALIAS_FLAG)
     private val base = Paint().apply { color = 0xFF2E2A27.toInt() }
 
+    /** Which thresholds colour the bars: voice (default) or music. */
+    var music = false
+
     fun show(next: List<Float>) {
         if (next == scores) return
         scores = next
@@ -38,7 +41,7 @@ class TimelineView(context: Context) : View(context) {
             val from = (i * per).toInt()
             val to = maxOf(from + 1, ((i + 1) * per).toInt()).coerceAtMost(scores.size)
             val p = scores.subList(from, to).max()          // a bar is as AI as its most AI-sounding window
-            bar.color = Verdict.voice(p).color
+            bar.color = (if (music) Verdict.music(p) else Verdict.voice(p)).color
             val top = h - 1 * dp - (h - 2 * dp) * (0.15f + 0.85f * p)
             canvas.drawRect(i * w + w * 0.15f, top, (i + 1) * w - w * 0.15f, h - 1 * dp, bar)
         }
