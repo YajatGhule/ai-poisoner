@@ -13,6 +13,7 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -68,7 +69,11 @@ class VoiceService : Service() {
 
         val mine = Session()
         val record = try {
-            if (source == SOURCE_PLAYBACK) playbackRecord(intent, mine) else micRecord()
+            when (source) {
+                SOURCE_PLAYBACK -> playbackRecord(intent, mine)
+                SOURCE_MUSIC_MIC -> micRecord(music = true)
+                else -> micRecord()
+            }
         } catch (e: Exception) {
             releaseProjection()
             VoiceState.update { it.copy(listening = false, status = "Couldn't start: ${e.message}") }
@@ -77,14 +82,19 @@ class VoiceService : Service() {
             return START_NOT_STICKY
         }
         synchronized(lock) { session = mine }
-        worker = Thread({ listen(record, source, mine) }, "voice-listener").apply { start() }
+        worker = Thread({ if (source == SOURCE_MUSIC_MIC) listenMusic(record, mine) else listen(record, source, mine) }, "voice-listener").apply { start() }
         return START_NOT_STICKY
     }
 
     @SuppressLint("MissingPermission")
-    private fun micRecord(): AudioRecord {
+    private fun micRecord(music: Boolean = false): AudioRecord {
         check(checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) { "microphone permission not granted" }
-        return AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, RATE, AudioFormat.CHANNEL_IN_MONO,
+        // Music needs the raw signal: the voice-recognition source applies speech processing that distorts it.
+        val unprocessed = getSystemService(AudioManager::class.java)
+            .getProperty(AudioManager.PROPERTY_SUPPORT_AUDIO_SOURCE_UNPROCESSED) == "true"
+        val src = if (!music) MediaRecorder.AudioSource.VOICE_RECOGNITION
+        else if (unprocessed) MediaRecorder.AudioSource.UNPROCESSED else MediaRecorder.AudioSource.MIC
+        return AudioRecord(src, RATE, AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT, bufferBytes())
     }
 
@@ -283,6 +293,87 @@ class VoiceService : Service() {
         }
     }
 
+    /** Music check: only the music model runs, on consecutive non-overlapping 5 s windows from the raw microphone. */
+    private fun listenMusic(record: AudioRecord, me: Session) {
+        val music = load(Models.Kind.MUSIC) { MusicDetector(it) }
+        if (music == null) {
+            post(me) { VoiceState.Snapshot(source = SOURCE_MUSIC_MIC, status = "Download the AI-music detector model first") }
+            record.release()
+            Handler(Looper.getMainLooper()).post { stopAfter(me, keepState = true) }
+            return
+        }
+        post(me) { VoiceState.Snapshot(listening = true, source = SOURCE_MUSIC_MIC, status = "Listening") }
+
+        val raw = ShortArray(RATE / 10)
+        val clip = FloatArray(MusicDetector.WINDOW)
+        var filled = 0
+        var heard = 0L
+        var musicSum = 0.0
+        var musicCount = 0
+        val scorer = Executors.newSingleThreadExecutor()
+        try {
+            record.startRecording()
+            if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) error("audio input is busy")
+            while (me.active.get()) {
+                val got = record.read(raw, 0, raw.size)
+                if (got < 0) {
+                    post(me) { it.copy(status = "Stopped: audio input lost") }
+                    break
+                }
+                var i = 0
+                while (i < got) {
+                    val take = minOf(got - i, clip.size - filled)
+                    for (k in 0 until take) clip[filled + k] = raw[i + k] / 32768f
+                    filled += take
+                    i += take
+                    heard += take
+                    if (filled < clip.size) continue
+                    filled = 0
+                    if (Speech.rms(clip, 0, clip.size) < MusicDetector.SILENCE_RMS) continue   // nothing playing
+                    val window = clip.copyOf()
+                    scorer.execute {
+                        try {
+                            if (!me.active.get()) return@execute
+                            val p = music.score(window)
+                            Log.d(TAG, "music window AI %.2f".format(p))
+                            musicSum += p
+                            musicCount++
+                            val mean = (musicSum / musicCount).toFloat()
+                            val count = musicCount
+                            post(me) { it.copy(musicMean = mean, musicWindows = count,
+                                musicScores = (it.musicScores + p).takeLast(VoiceState.MAX_MUSIC_SCORES)) }
+                            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID,
+                                notification(if (count < 3) "Listening…" else MusicDetector.describe(mean)))
+                        } catch (e: Exception) {
+                            Log.e(TAG, "music scoring failed", e)
+                        }
+                    }
+                }
+                post(me) { it.copy(heardSec = heard.toFloat() / RATE) }
+            }
+        } catch (e: Exception) {
+            post(me) { it.copy(status = "Stopped: ${e.message}") }
+        } finally {
+            me.active.set(false)
+            runCatching { record.stop() }
+            record.release()
+            scorer.shutdown()
+            var done = scorer.awaitTermination(5, TimeUnit.SECONDS)
+            if (!done) { scorer.shutdownNow(); done = scorer.awaitTermination(60, TimeUnit.SECONDS) }
+            if (done) music.close() else Log.w(TAG, "music scorer still running; leaving detector open")
+            Handler(Looper.getMainLooper()).post { stopAfter(me) }
+        }
+    }
+
+    /** Ends the service once [me] is over, unless a newer session has already taken its place. */
+    private fun stopAfter(me: Session, keepState: Boolean = false) {
+        if (session !== me) return
+        if (keepState) { synchronized(lock) { session?.active?.set(false); session = null } }
+        else stopListening(reset = true)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     private fun <T> load(kind: Models.Kind, make: (java.io.File) -> T): T? =
         if (Models.isReady(this, kind)) runCatching { make(Models.file(this, kind)) }.getOrNull() else null
 
@@ -353,12 +444,16 @@ class VoiceService : Service() {
         const val EXTRA_SOURCE = "source"
         const val SOURCE_MIC = "mic"
         const val SOURCE_PLAYBACK = "playback"
+        const val SOURCE_MUSIC_MIC = "music-mic"
         private const val EXTRA_RESULT_CODE = "code"
         private const val EXTRA_RESULT_DATA = "data"
         private const val ACTION_STOP = "stop"
 
         fun startMic(ctx: Context) =
             ctx.startForegroundService(Intent(ctx, VoiceService::class.java).putExtra(EXTRA_SOURCE, SOURCE_MIC))
+
+        fun startMusicMic(ctx: Context) =
+            ctx.startForegroundService(Intent(ctx, VoiceService::class.java).putExtra(EXTRA_SOURCE, SOURCE_MUSIC_MIC))
 
         fun startPlayback(ctx: Context, resultCode: Int, data: Intent) =
             ctx.startForegroundService(Intent(ctx, VoiceService::class.java)
