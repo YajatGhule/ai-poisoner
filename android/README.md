@@ -15,6 +15,9 @@ The Android version of the AI Poisoner detector. Everything runs **on the phone*
    voice check, a transcript and an **AI-music** score.
 4. **AI-music detection.** Songs are scored by a model trained to spot Suno/Udio-style generated music, for
    files and, while listening, for whatever the phone is playing.
+5. **Music check.** *Listen for music* uses the microphone (raw, unprocessed source where the phone offers it) and
+   scores consecutive 5-second windows with the music model only; the verdict appears after 3 windows (about 15 s).
+   It needs the AI-music model downloaded.
 
 > **Status: alpha (v0.3.0-alpha).** Tested on an Android 15 emulator and on one real phone (iQOO Z5,
 > Android 13). File checks, music detection and image labels work on the phone; live listening with
@@ -131,6 +134,9 @@ Not sure which one you have? Use **universal**. It always works.
 - **AI-music detection catches Suno well but often misses short Udio clips**, and it was not tested on mainstream
   commercial music. In a small check (15 real, 39 AI songs) no real song scored above 0.65; the app calls a song AI
   at 0.80 or more. Treat "Unsure" as unknown, not as "probably real".
+- **The Music check is less accurate than checking a file.** Room acoustics, speaker quality and phone microphones
+  change what the model hears, so hold the phone close to the speaker. It has the same model caveats as the file
+  music check above, and it judges the music, not lyrics.
 - **Real photos can still be labelled AI on some phones.** On the iQOO Z5 one real photo on the test page scored
   95%. A stronger image model is the main item on the list below.
 - **All detectors are estimates, not proof.** For the voice detector, see the measured accuracy in
