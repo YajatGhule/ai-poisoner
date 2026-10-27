@@ -39,6 +39,12 @@ class MainActivity : Activity() {
     private lateinit var listenMic: Button
     private lateinit var listenPhone: Button
     private lateinit var stop: Button
+    private lateinit var musicListen: Button
+    private lateinit var musicStop: Button
+    private lateinit var musicVerdict: TextView
+    private lateinit var musicLive: TextView
+    private lateinit var musicStatus: TextView
+    private lateinit var musicTimeline: TimelineView
     private val modelRows = mutableMapOf<Models.Kind, Pair<TextView, Button>>()
     private var pending: (() -> Unit)? = null
     private val onVoice: (VoiceState.Snapshot) -> Unit = { render(it) }
@@ -188,6 +194,7 @@ class MainActivity : Activity() {
                 "Verdicts are estimates from a small model, not proof. Don't accuse anyone based on this alone.",
             12f, MUTE).apply { setPadding(0, px(16), 0, 0) }
 
+        buildMusicSection(col)
         buildFileSection(col)
 
         return ScrollView(this).apply {
@@ -202,6 +209,28 @@ class MainActivity : Activity() {
                 insets
             }
         }
+    }
+
+    private fun buildMusicSection(col: LinearLayout) {
+        col += section("Music check")
+        col += label("Hold the phone near the speaker. Judges the music, not lyrics; needs about 15 s.", 13f, MUTE)
+        musicListen = button("Listen for music") { withAudioPermission { VoiceService.startMusicMic(this) } }
+        col += musicListen
+        musicStop = button("Stop") { VoiceService.stop(this) }
+        col += musicStop
+        musicVerdict = TextView(this).apply {
+            textSize = 26f
+            typeface = Typeface.create(Typeface.SERIF, Typeface.NORMAL)
+            setTextColor(INK)
+            setPadding(0, px(14), 0, px(6))
+        }
+        col += musicVerdict
+        musicLive = label("", 13f, INK)
+        col += musicLive
+        musicTimeline = TimelineView(this).apply { music = true; visibility = View.GONE }
+        col += musicTimeline
+        musicStatus = label("", 12f, MUTE)
+        col += musicStatus
     }
 
     private fun buildFileSection(col: LinearLayout) {
@@ -388,7 +417,10 @@ class MainActivity : Activity() {
         Verdict.HUMAN -> "Likely a human voice"
     }
 
-    private fun render(s: VoiceState.Snapshot) {
+    private fun render(snap: VoiceState.Snapshot) {
+        renderMusic(snap)
+        // Music-check results belong to the Music section; the voice section shows nothing for them.
+        val s = if (snap.source == VoiceService.SOURCE_MUSIC_MIC) VoiceState.Snapshot() else snap
         listenMic.isEnabled = !s.listening || s.source != VoiceService.SOURCE_MIC
         listenPhone.isEnabled = !s.listening || s.source != VoiceService.SOURCE_PLAYBACK
         stop.visibility = if (s.listening) View.VISIBLE else View.GONE
@@ -429,6 +461,36 @@ class MainActivity : Activity() {
         }
         transcript.text = (s.transcript + if (s.partial.isNotEmpty()) " " + s.partial + "…" else "").trim()
             .ifEmpty { if (s.listening) "…" else "The transcript will appear here." }
+    }
+
+    private fun renderMusic(snap: VoiceState.Snapshot) {
+        val mine = snap.source == VoiceService.SOURCE_MUSIC_MIC
+        val s = if (mine) snap else VoiceState.Snapshot()
+        musicListen.isEnabled = !s.listening
+        musicStop.visibility = if (s.listening) View.VISIBLE else View.GONE
+        val m = s.musicMean
+        val enough = m != null && s.musicWindows >= 3   // noisy until a few windows are in
+        musicVerdict.text = when {
+            enough -> when (Verdict.music(m!!)) {
+                Verdict.AI -> "Likely AI-generated"
+                Verdict.UNSURE -> "Unsure"
+                Verdict.HUMAN -> "Likely human-made"
+            }
+            s.listening -> "Listening…"
+            else -> ""
+        }
+        musicVerdict.setTextColor(if (enough) Verdict.music(m!!).color else INK)
+        musicVerdict.visibility = if (musicVerdict.text.isEmpty()) View.GONE else View.VISIBLE
+        musicLive.text = if (m == null) "" else
+            "${(m * 100).toInt()}% AI  ·  ${s.musicWindows} windows  ·  ${Speech.clock(s.heardSec)} heard"
+        musicLive.visibility = if (musicLive.text.isEmpty()) View.GONE else View.VISIBLE
+        musicTimeline.show(s.musicScores)
+        musicStatus.text = when {
+            !mine || s.status.isEmpty() -> ""
+            !s.listening && s.status.startsWith("Listening") -> "Stopped"
+            else -> s.status
+        }
+        musicStatus.visibility = if (musicStatus.text.isEmpty()) View.GONE else View.VISIBLE
     }
 
     // ---------------- permissions & capture ----------------
