@@ -67,9 +67,11 @@ def halve(x: torch.Tensor) -> torch.Tensor:
 def report(encoder: Encoder, clean: torch.Tensor, protected: torch.Tensor, eps: float,
            px: int = 512, seed: int = 0) -> dict:
     """Everything the UI and the benchmark show for one image."""
+    # The fair comparison is noise of exactly the same size: keep how much each pixel
+    # changed and flip a coin for the direction. Same PSNR, no intent behind it.
     gen = torch.Generator().manual_seed(seed)
-    noise = (torch.randint(0, 2, clean.shape, generator=gen).float() * 2 - 1).to(clean.device) * eps
-    noisy = (clean + noise).clamp(0, 1)
+    signs = (torch.randint(0, 2, clean.shape, generator=gen).float() * 2 - 1).to(clean.device)
+    noisy = (clean + signs * (protected - clean).abs()).clamp(0, 1)
     shift = latent_shift(encoder, clean, protected, px)
     base = latent_shift(encoder, clean, noisy, px)
     # After a lossy step, compare with the clean picture put through the same step,
