@@ -55,7 +55,17 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   return true;
 });
 
+const MENU = 'aip-protect-image';
+chrome.contextMenus.onClicked.addListener(info => {
+  const src = info.srcUrl;
+  if (info.menuItemId !== MENU || !/^(https?|data|blob):/i.test(src ?? '')) return;
+  chrome.tabs.create({ url: chrome.runtime.getURL('protect.html') + '?src=' + encodeURIComponent(src) });
+});
+
 chrome.runtime.onInstalled.addListener(async () => {
+  chrome.contextMenus.removeAll(() => chrome.contextMenus.create({
+    id: MENU, title: 'Protect this image with AI Poisoner', contexts: ['image'],
+  }));
   const cur = await chrome.storage.sync.get(DEFAULTS);
   await chrome.storage.sync.set(cur);
   toOffscreen({ type: 'warmup' }).catch(() => {});
