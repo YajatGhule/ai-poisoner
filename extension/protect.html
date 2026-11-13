@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Poisoner: protect an image</title>
+<style>
+  :root{--bg:#0e0d0c;--bg2:#171513;--ink:#ede7db;--mute:#8d867c;--faint:#2e2a27;--gold:#c9a45c;--red:#e0604f;--green:#6fbf8a}
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--ink);font:15px/1.5 Inter,ui-sans-serif,system-ui,sans-serif;padding:32px 16px 64px}
+  main{max-width:760px;margin:0 auto}
+  .k{font:11px ui-monospace,"JetBrains Mono",monospace;letter-spacing:.16em;text-transform:uppercase;color:var(--mute)}
+  h1{font:400 40px/1.05 "Instrument Serif",Georgia,serif;letter-spacing:-.01em;margin:8px 0 10px}
+  h1 em,h2 em{color:var(--gold)}
+  h2{font:400 22px/1.2 "Instrument Serif",Georgia,serif;margin:0 0 10px}
+  p.lead{color:var(--mute);max-width:60ch;margin-bottom:24px}
+  .card{background:var(--bg2);border:1px solid var(--faint);border-radius:12px;padding:20px;margin-top:16px}
+  #drop{display:block;border:1.5px dashed var(--faint);border-radius:12px;padding:36px 16px;text-align:center;color:var(--mute);cursor:pointer;transition:.15s}
+  #drop:hover,#drop.over,#drop:focus-within{border-color:var(--gold);color:var(--ink)}
+  #drop b{color:var(--ink);font-weight:500}
+  #drop input{position:absolute;opacity:0;width:1px;height:1px}
+  .opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-top:18px}
+  fieldset{border:0;padding:0;min-width:0}
+  legend{font-size:12px;color:var(--mute);margin-bottom:6px;padding:0}
+  .seg{display:flex;border:1px solid var(--faint);border-radius:8px;overflow:hidden}
+  .seg label{flex:1;text-align:center;font-size:13px;padding:7px 6px;color:var(--mute);cursor:pointer}
+  .seg input{position:absolute;opacity:0}
+  .seg input:checked+span{color:var(--ink)}
+  .seg label:has(input:checked){background:var(--faint)}
+  .seg label:has(input:focus-visible){outline:2px solid var(--gold);outline-offset:-2px}
+  .hint{font-size:12px;color:var(--mute);margin-top:6px;min-height:36px}
+  button{font:inherit;border:0;border-radius:8px;padding:10px 18px;cursor:pointer}
+  .go{background:var(--gold);color:#17130a;font-weight:600;margin-top:18px}
+  .go:disabled{opacity:.4;cursor:not-allowed}
+  .ghost{background:none;border:1px solid var(--faint);color:var(--ink)}
+  a.dl{display:inline-block;background:var(--gold);color:#17130a;font-weight:600;border-radius:8px;padding:10px 18px;text-decoration:none}
+  .bar{height:6px;background:var(--faint);border-radius:3px;overflow:hidden;margin:12px 0 8px}
+  .bar i{display:block;height:100%;width:0;background:var(--gold);transition:width .4s}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+  figure{margin:0;min-width:0}
+  figure img{width:100%;border-radius:8px;display:block;background:#000}
+  figcaption{font-size:12px;color:var(--mute);margin-top:4px}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:14px}
+  td{padding:7px 0;border-top:1px solid var(--faint);vertical-align:top}
+  td:last-child{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;padding-left:12px}
+  td small{color:var(--mute);display:block}
+  .status{display:flex;align-items:center;gap:8px;color:var(--mute);font-size:13px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--mute);flex:none}
+  .dot.ok{background:var(--green)}.dot.bad{background:var(--red)}
+  .err{color:var(--red);margin-top:16px}
+  [hidden]{display:none!important}
+  details{margin-top:16px;color:var(--mute);font-size:13px}
+  details p{margin-top:8px;max-width:68ch}
+  summary{cursor:pointer;color:var(--ink)}
+  .setup p{color:var(--mute);max-width:62ch}
+  .setup p+p{margin-top:8px}
+  .setup pre{font:13px/1.5 ui-monospace,"JetBrains Mono",monospace;background:var(--bg);border:1px solid var(--faint);border-radius:6px;padding:10px 12px;margin:10px 0;overflow-x:auto}
+  input[type=text],input[type=password]{width:100%;font:inherit;background:var(--bg);color:var(--ink);border:1px solid var(--faint);border-radius:8px;padding:8px 10px}
+  input[type=text]:focus-visible,input[type=password]:focus-visible,button:focus-visible,a.dl:focus-visible,summary:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+  label.f{display:block;font-size:12px;color:var(--mute);margin:12px 0 6px}
+  #settings form{max-width:420px}
+  @media (max-width:520px){.pair{grid-template-columns:1fr}h1{font-size:32px}}
+</style></head>
+<body><main>
+  <div class="k">High Art · Poisoner</div>
+  <h1>Protect an <em>image</em></h1>
+  <p class="lead">Adds a change too small to notice easily, built so that image-generating AI reads your picture as something else. Everything runs on this computer. The image is never uploaded anywhere.</p>
+  <div class="status" role="status" aria-live="polite"><span class="dot" id="dot"></span><span id="health">Checking the backend…</span></div>
+
+  <section class="card setup" id="setup" hidden aria-labelledby="setup-h">
+    <h2 id="setup-h">The backend is <em>not running</em></h2>
+    <p>Protecting an image needs a small program on your computer (the backend). It does the heavy work so your picture never leaves this machine. Open a terminal in the AI Poisoner folder and start it:</p>
+    <pre>cd poisoner
+uv run aipoisoner serve</pre>
+    <p>This page checks again every few seconds and will switch to the form by itself. If you started it on another address, change it under "Backend address" below.</p>
+    <div class="row" style="margin-top:14px"><button class="ghost" id="retry" type="button">Retry</button><span class="hint" id="retrynote" style="min-height:0;margin:0"></span></div>
+  </section>
+
+  <form class="card" id="form" hidden>
+    <label id="drop"><input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/bmp,image/tiff">
+      <span id="droptext"><b>Choose an image</b> or drop one here<br><small>PNG, JPEG or WebP, up to 30 MB</small></span></label>
+    <div class="opts">
+      <fieldset><legend>Strength</legend>
+        <div class="seg" id="strength">
+          <label><input type="radio" name="strength" value="light"><span>Light</span></label>
+          <label><input type="radio" name="strength" value="standard" checked><span>Standard</span></label>
+          <label><input type="radio" name="strength" value="strong"><span>Strong</span></label>
+        </div><div class="hint" id="shint"></div></fieldset>
+      <fieldset><legend>Method</legend>
+        <div class="seg" id="mode">
+          <label><input type="radio" name="mode" value="cloak" checked><span>Cloak</span></label>
+          <label><input type="radio" name="mode" value="scramble"><span>Scramble</span></label>
+        </div><div class="hint" id="mhint"></div></fieldset>
+      <fieldset><legend>Save as</legend>
+        <div class="seg">
+          <label><input type="radio" name="format" value="png" checked><span>PNG</span></label>
+          <label><input type="radio" name="format" value="jpeg"><span>JPEG</span></label>
+          <label><input type="radio" name="format" value="webp"><span>WebP</span></label>
+        </div><div class="hint">PNG and WebP keep the protection exactly. JPEG is smaller and loses a little of it.</div></fieldset>
+    </div>
+    <button class="go" id="go" disabled>Protect image</button>
+  </form>
+
+  <section class="card" id="work" hidden aria-labelledby="wtitle">
+    <h2 id="wtitle">Working…</h2>
+    <div class="bar" role="progressbar" aria-label="Progress" aria-valuemin="0" aria-valuemax="100" id="bar"><i id="fill"></i></div>
+    <div class="row"><span id="wtext" class="hint" role="status" aria-live="polite" style="min-height:0;margin:0"></span><button class="ghost" id="cancel" type="button">Cancel</button></div>
+  </section>
+
+  <section class="card" id="done" hidden aria-labelledby="done-h">
+    <h2 id="done-h" tabindex="-1">Protected. <em>Compare them.</em></h2>
+    <div class="pair">
+      <figure><img id="before" alt="Original image"><figcaption>Original</figcaption></figure>
+      <figure><img id="after" alt="Protected image"><figcaption>Protected (what people see)</figcaption></figure>
+    </div>
+    <figure style="margin-top:14px"><img id="view" alt="Left: the original as the AI encoder rebuilds it. Right: the protected image as the AI encoder rebuilds it.">
+      <figcaption>What the AI encoder rebuilds: original on the left, protected on the right.</figcaption></figure>
+    <table id="numbers"></table>
+    <div class="row" style="margin-top:16px"><a class="dl" id="save">Download protected image</a><button class="ghost" id="again" type="button">Protect another</button></div>
+    <details><summary>What do these numbers mean, and what is not proven?</summary>
+      <p>The search looks for the smallest change that moves your picture furthest inside the encoder that Stable Diffusion-type models use to read images. "Latent shift" is how far it moved, and it is compared with random noise of the same size.</p>
+      <p>This is measured on the encoder only. It has not been tested by training or running a full image generator on protected pictures, and published work shows that this kind of protection can be weakened by heavy compression, blurring or purpose-built removal tools. Treat it as making misuse harder, not impossible.</p></details>
+  </section>
+  <p class="err" id="err" role="alert" hidden></p>
+
+  <details id="settings">
+    <summary>Backend address</summary>
+    <form id="sform" novalidate>
+      <label class="f" for="addr">Server address</label>
+      <input type="text" id="addr" inputmode="url" autocomplete="off" spellcheck="false" placeholder="http://127.0.0.1:8765">
+      <label class="f" for="tok">Access token (only if the server was started with one)</label>
+      <input type="password" id="tok" autocomplete="off" spellcheck="false">
+      <div class="row" style="margin-top:14px"><button class="ghost" type="submit">Save</button><span class="hint" id="snote" role="status" aria-live="polite" style="min-height:0;margin:0"></span></div>
+    </form>
+  </details>
+</main>
+<script src="protect.js"></script>
+</body></html>
