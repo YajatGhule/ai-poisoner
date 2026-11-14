@@ -8,24 +8,31 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.text.Editable
+import android.text.InputType
 import android.text.TextUtils
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
 import android.widget.Button
 import android.widget.CompoundButton
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 
-/** One screen: model downloads, the image-overlay switch, and the live voice check. */
+/** One screen: model downloads, the image-overlay switch, the live voice check, file checks and photo protection. */
 class MainActivity : Activity() {
     private val dp by lazy { resources.displayMetrics.density }
     private lateinit var a11yStatus: TextView
@@ -69,6 +76,26 @@ class MainActivity : Activity() {
     private var transcriptExpanded = false
     private val onFile: (FileCheckState.Snapshot) -> Unit = { renderFile(it) }
 
+    // "Protect a photo" views; state comes from ProtectState so it survives rotation.
+    private lateinit var scroll: ScrollView
+    private lateinit var protectHeader: View
+    private lateinit var protectAddress: EditText
+    private lateinit var protectToken: EditText
+    private lateinit var protectTest: Button
+    private lateinit var protectTestLine: TextView
+    private lateinit var protectChoose: Button
+    private lateinit var protectName: TextView
+    private lateinit var protectStatus: TextView
+    private lateinit var protectProgress: ProgressBar
+    private lateinit var protectCancel: Button
+    private lateinit var protectNotice: TextView
+    private lateinit var protectResult: View
+    private lateinit var protectOriginal: ImageView
+    private lateinit var protectProtected: ImageView
+    private lateinit var protectSaved: TextView
+    private lateinit var protectNumbers: TextView
+    private val onProtect: (ProtectState.Snapshot) -> Unit = { renderProtect(it) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Thread { Models.removeOutdated(this) }.start()
@@ -81,16 +108,25 @@ class MainActivity : Activity() {
         checkShared(intent)
     }
 
-    /** A file shared to the app ("Share → AI Poisoner") or opened with it goes straight to the file check. */
+    /**
+     * A file shared to the app ("Share → Check for AI") or opened with it goes straight to the file check.
+     * An image shared through the "Protect with AI Poisoner" entry (the activity alias) goes to Protect a photo.
+     */
     private fun checkShared(intent: Intent?) {
+        val viaProtect = intent?.action == Intent.ACTION_SEND && intent.component?.className?.endsWith(".ProtectShareAlias") == true
         val uri = when (intent?.action) {
-            Intent.ACTION_SEND -> @Suppress("DEPRECATION") (intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM))
+            Intent.ACTION_SEND -> @Suppress("DEPRECATION") (intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM))
             Intent.ACTION_VIEW -> intent.data
             // Debug builds only: `adb shell am start -n …/.MainActivity --es path /sdcard/Android/data/<pkg>/files/x.m4a`
             // (the app's own folder needs no permission), so demos and tests can skip the system picker.
             else -> intent?.getStringExtra("path")?.takeIf { applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0 }
-                ?.let { android.net.Uri.fromFile(java.io.File(it)) }
+                ?.let { Uri.fromFile(java.io.File(it)) }
         } ?: return
+        if (viaProtect) {
+            Protect.start(applicationContext, uri)
+            scroll.post { scroll.scrollTo(0, protectHeader.top) }
+            return
+        }
         transcriptExpanded = false
         FileCheck.start(applicationContext, uri)
     }
@@ -103,12 +139,14 @@ class MainActivity : Activity() {
         ticker.run()
         VoiceState.observe(onVoice)
         FileCheckState.observe(onFile)
+        ProtectState.observe(onProtect)
     }
 
     override fun onPause() {
         a11yStatus.removeCallbacks(ticker)
         VoiceState.remove(onVoice)
         FileCheckState.remove(onFile)
+        ProtectState.remove(onProtect)
         super.onPause()
     }
 
@@ -196,15 +234,20 @@ class MainActivity : Activity() {
 
         buildMusicSection(col)
         buildFileSection(col)
+        buildProtectSection(col)
 
         return ScrollView(this).apply {
+            scroll = this
+            id = SCROLL_ID                  // lets Android keep the scroll position across rotation
             addView(col)
             // Android 15 draws apps edge-to-edge; keep content clear of the status and navigation bars.
             // The bar insets go on the scroll view (clipped), so scrolled text never slides under the clock.
             clipToPadding = true
             setOnApplyWindowInsetsListener { v, insets ->
                 val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
-                v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                // The keyboard counts too, so a focused text field can scroll above it.
+                val keyboard = insets.getInsets(WindowInsets.Type.ime()).bottom
+                v.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, keyboard))
                 col.setPadding(px(20), px(28), px(20), px(32))
                 insets
             }
@@ -290,6 +333,166 @@ class MainActivity : Activity() {
         col += fileTranscriptToggle
     }
 
+    private fun buildProtectSection(col: LinearLayout) {
+        protectHeader = section("Protect a photo")
+        col += protectHeader
+        col += label("Adds a tiny change to a photo that makes it harder for AI image tools to learn from or copy it. " +
+            "The photo is sent only to your own computer over your Wi-Fi, never to the internet. " +
+            "Your computer needs the AI Poisoner backend running with --lan (see the README).", 13f, MUTE)
+
+        col += caption("YOUR COMPUTER")
+        protectAddress = textField("Address, like 192.168.1.20:8765", Prefs.protectAddress(this),
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI) {
+            Prefs.setProtectAddress(this, it.trim()); Protect.clearTest()
+        }
+        col += protectAddress
+        protectToken = textField("Access token", Prefs.protectToken(this),
+            InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD) {
+            Prefs.setProtectToken(this, it.trim()); Protect.clearTest()
+        }
+        col += protectToken
+        col += toggle("Show token", false) { show ->
+            val start = protectToken.selectionStart
+            protectToken.inputType = InputType.TYPE_CLASS_TEXT or
+                if (show) InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD else InputType.TYPE_TEXT_VARIATION_PASSWORD
+            protectToken.setSelection(maxOf(start, 0))
+        }
+        protectTest = button("Test connection") { Protect.testConnection(applicationContext) }
+        col += protectTest
+        protectTestLine = label("", 13f, INK)
+        col += protectTestLine
+
+        col += caption("STRENGTH")
+        val strengthNote = label("", 12f, MUTE)
+        col += choices(listOf("light" to "Light", "standard" to "Standard", "strong" to "Strong"), Prefs.protectStrength(this)) {
+            Prefs.setProtectStrength(this, it)
+            strengthNote.text = when (it) {
+                "light" -> "Smallest change and quickest: well under a minute for a small photo."
+                "standard" -> "The usual choice. About 1.5 to 3 minutes on a laptop without a graphics card."
+                else -> "Largest change: more protection, but faint grain can show. Slowest."
+            }
+        }
+        col += strengthNote
+        col += caption("METHOD")
+        val modeNote = label("", 12f, MUTE)
+        col += choices(listOf("cloak" to "Cloak", "scramble" to "Scramble"), Prefs.protectMode(this)) {
+            Prefs.setProtectMode(this, it)
+            modeNote.text = when (it) {
+                "cloak" -> "Pulls the picture toward a fixed pattern, so the AI sees wrong shapes."
+                else -> "Pushes the picture away from itself, in no particular direction."
+            }
+        }
+        col += modeNote
+
+        protectChoose = button("Choose photo") { choosePhoto() }
+        col += protectChoose
+        protectName = label("", 14f, INK).apply { setPadding(0, px(10), 0, px(2)) }
+        col += protectName
+        protectStatus = label("", 13f, MUTE)
+        col += protectStatus
+        protectProgress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100 }
+        col += protectProgress
+        protectCancel = button("Cancel") { Protect.cancel() }
+        col += protectCancel
+        protectNotice = label("", 14f, GOLD)
+        col += protectNotice
+
+        val result = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
+        protectResult = result
+        result += TextView(this).apply {
+            text = "Photo protected"
+            textSize = 26f
+            typeface = Typeface.create(Typeface.SERIF, Typeface.NORMAL)
+            setTextColor(GREEN)
+            setPadding(0, px(14), 0, px(6))
+        }
+        val pair = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun thumb(caption: String): Pair<View, ImageView> {
+            val img = ImageView(this).apply {
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                background = card()
+                setPadding(px(2), px(2), px(2), px(2))
+            }
+            val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            box.addView(img, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(170)))
+            box.addView(label(caption, 12f, MUTE))
+            return box to img
+        }
+        val (left, leftImg) = thumb("Original")
+        val (right, rightImg) = thumb("Protected")
+        protectOriginal = leftImg
+        protectProtected = rightImg
+        pair.addView(left, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = px(8) })
+        pair.addView(right, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        result += pair
+        protectSaved = label("", 13f, INK).apply { setPadding(0, px(10), 0, px(4)) }
+        result += protectSaved
+        protectNumbers = label("", 13f, INK).apply { setLineSpacing(0f, 1.15f) }
+        result += protectNumbers
+        result += label("The effect is measured on one AI image encoder only. It is not a guarantee against every AI tool, " +
+            "and strong editing or resizing can weaken it.", 12f, MUTE).apply { setPadding(0, px(8), 0, 0) }
+        result += button("Share") { shareProtected() }
+        result += button("Protect another") { Protect.reset() }
+        col += result
+    }
+
+    private fun choosePhoto() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "image/*"
+        }
+        @Suppress("DEPRECATION")
+        startActivityForResult(intent, REQ_PHOTO)
+    }
+
+    private fun shareProtected() {
+        val uri = ProtectState.current.savedUri ?: return
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "image/png"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(send, "Share protected photo"))
+    }
+
+    private fun renderProtect(s: ProtectState.Snapshot) {
+        fun show(v: View, on: Boolean) { v.visibility = if (on) View.VISIBLE else View.GONE }
+        fun text(v: TextView, t: String?) { v.text = t ?: ""; show(v, !t.isNullOrEmpty()) }
+        val done = s.phase == ProtectState.Phase.DONE
+        protectTest.isEnabled = !s.testing
+        protectTest.text = if (s.testing) "Testing…" else "Test connection"
+        text(protectTestLine, if (s.testing) "Contacting your computer…" else s.testMessage)
+        protectTestLine.setTextColor(if (s.testOk == true) GREEN else if (s.testOk == false) Verdict.AI.color else MUTE)
+
+        show(protectChoose, !s.busy && !done)
+        protectChoose.text = if (s.phase == ProtectState.Phase.FAILED || s.phase == ProtectState.Phase.CANCELLED) "Choose another photo" else "Choose photo"
+        text(protectName, if (s.phase == ProtectState.Phase.IDLE || s.name.isEmpty()) null
+            else listOf(s.name, FileCheck.formatSize(s.sizeBytes)).filter { it.isNotEmpty() }.joinToString("  ·  "))
+        text(protectStatus, if (s.busy) Protect.statusLine(s) else if (s.phase == ProtectState.Phase.IDLE) "No photo chosen yet." else null)
+        show(protectProgress, s.busy)
+        val known = s.phase == ProtectState.Phase.RUNNING && s.steps > 0
+        protectProgress.isIndeterminate = !known
+        if (known) protectProgress.progress = s.step * 100 / s.steps
+        show(protectCancel, s.busy)
+        text(protectNotice, when (s.phase) {
+            ProtectState.Phase.FAILED -> s.message
+            ProtectState.Phase.CANCELLED -> "Cancelled."
+            else -> null
+        })
+        protectNotice.setTextColor(if (s.phase == ProtectState.Phase.FAILED) Verdict.AI.color else GOLD)
+
+        show(protectResult, done)
+        if (done) {
+            protectOriginal.setImageBitmap(s.original)
+            protectProtected.setImageBitmap(s.protectedThumb)
+            protectSaved.text = "Saved to ${s.savedPath}"
+            protectNumbers.text = Protect.numberLines(s.numbers, s.seconds).joinToString("\n") { "•  $it" }
+        } else {
+            protectOriginal.setImageDrawable(null)
+            protectProtected.setImageDrawable(null)
+        }
+    }
+
     private fun chooseFile() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -308,7 +511,7 @@ class MainActivity : Activity() {
         show(fileCancel, s.busy)
         fileProgress.isIndeterminate = s.progress < 0f
         if (s.progress >= 0f) fileProgress.progress = (s.progress * 100).toInt()
-        text(fileStatus, if (!s.busy) null else if (s.progress >= 0f) "Analysing… ${(s.progress * 100).toInt()}%" else s.stage)
+        text(fileStatus, if (!s.busy) (if (s.name.isEmpty()) "No file chosen yet." else null) else if (s.progress >= 0f) "Analysing… ${(s.progress * 100).toInt()}%" else s.stage)
         text(fileNotice, s.error ?: s.notice)
         fileNotice.setTextColor(if (s.error != null) Verdict.AI.color else GOLD)
 
@@ -365,7 +568,7 @@ class MainActivity : Activity() {
         val text = label("", 14f, INK)
         val get = button("Download") { download(kind) }
         row.addView(text, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        row.addView(get)
+        row.addView(get, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         modelRows[kind] = text to get
         return row
     }
@@ -486,7 +689,7 @@ class MainActivity : Activity() {
         musicLive.visibility = if (musicLive.text.isEmpty()) View.GONE else View.VISIBLE
         musicTimeline.show(s.musicScores)
         musicStatus.text = when {
-            !mine || s.status.isEmpty() -> ""
+            !mine || s.status.isEmpty() -> "Not listening. Tap Listen for music to start."
             !s.listening && s.status.startsWith("Listening") -> "Stopped"
             else -> s.status
         }
@@ -525,6 +728,7 @@ class MainActivity : Activity() {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQ_CAPTURE && resultCode == RESULT_OK && data != null) VoiceService.startPlayback(this, resultCode, data)
+        if (requestCode == REQ_PHOTO && resultCode == RESULT_OK) data?.data?.let { Protect.start(applicationContext, it) }
         if (requestCode == REQ_FILE && resultCode == RESULT_OK) data?.data?.let {
             transcriptExpanded = false
             FileCheck.start(applicationContext, it)
@@ -551,6 +755,50 @@ class MainActivity : Activity() {
         setPadding(0, px(2), 0, px(2))
     }
 
+    /** Small all-caps label above a group of controls. */
+    private fun caption(t: String) = label(t, 11f, MUTE, mono = true).apply { setPadding(0, px(14), 0, px(4)) }
+
+    private fun textField(hint: String, value: String, type: Int, onChange: (String) -> Unit) = EditText(this).apply {
+        setText(value)
+        this.hint = hint
+        setHintTextColor(MUTE)
+        setTextColor(INK)
+        textSize = 15f
+        inputType = type
+        typeface = Typeface.DEFAULT
+        setSingleLine()
+        imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+        importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO
+        background = card()
+        setPadding(px(14), px(10), px(14), px(10))
+        minHeight = px(48)
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { topMargin = px(6) }
+        addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) { onChange(s?.toString() ?: "") }
+        })
+    }
+
+    /** A stack of radio buttons; [onPick] runs once now for the saved choice, then on every change. */
+    private fun choices(options: List<Pair<String, String>>, current: String, onPick: (String) -> Unit): RadioGroup {
+        val group = RadioGroup(this).apply { orientation = RadioGroup.VERTICAL }   // stacked: words stay whole at large font sizes
+        val ids = options.associate { (value, name) ->
+            val b = RadioButton(this).apply {
+                id = View.generateViewId()
+                text = name
+                textSize = 15f
+                setTextColor(INK)
+            }
+            group.addView(b, RadioGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            b.id to value
+        }
+        group.setOnCheckedChangeListener { _, id -> ids[id]?.let(onPick) }
+        group.check(ids.entries.firstOrNull { it.value == current }?.key ?: ids.keys.first())
+        return group
+    }
+
     private fun section(t: String) = TextView(this).apply {
         text = t
         textSize = 21f
@@ -571,6 +819,10 @@ class MainActivity : Activity() {
         setTextColor(INK)
         background = card()
         setPadding(px(14), 0, px(14), 0)
+        minHeight = px(48)
+        minimumHeight = px(48)
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { topMargin = px(8) }
         setOnClickListener { onClick() }
     }
 
@@ -587,6 +839,8 @@ class MainActivity : Activity() {
         private const val REQ_PERMS = 1
         private const val REQ_CAPTURE = 2
         private const val REQ_FILE = 3
+        private const val REQ_PHOTO = 4
+        private const val SCROLL_ID = 0x7a1b0001
         private const val TRANSCRIPT_PREVIEW = 800
         private const val INK = 0xFFEDE7DB.toInt()
         private const val MUTE = 0xFF8D867C.toInt()
