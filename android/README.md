@@ -18,8 +18,12 @@ The Android version of the AI Poisoner detector. Everything runs **on the phone*
 5. **Music check.** *Listen for music* uses the microphone (raw, unprocessed source where the phone offers it) and
    scores consecutive 5-second windows with the music model only; the verdict appears after 3 windows (about 15 s).
    It needs the AI-music model downloaded.
+6. **Protect a photo.** Sends a photo to the AI Poisoner backend on **your own computer** (same Wi-Fi), which adds a
+   small change meant to confuse AI image tools. Pick a strength (Light, Standard, Strong) and a method (Cloak,
+   Scramble); the protected PNG is saved to *Pictures/AI Poisoner*, shown next to the original with a few plain
+   numbers, and can be shared. Also in the Share sheet as **Protect with AI Poisoner**.
 
-> **Status: alpha (v0.3.0-alpha).** Tested on an Android 15 emulator and on one real phone (iQOO Z5,
+> **Status: alpha (v0.4.0-alpha).** Tested on an Android 15 emulator and on one real phone (iQOO Z5,
 > Android 13). File checks, music detection and image labels work on the phone; live listening with
 > *Phone audio* has only been verified on the emulator so far. Expect rough edges on other phones.
 
@@ -50,6 +54,9 @@ VoiceService (foreground service)
 | `AudioFileDecoder.kt` | Streams any audio/video file to 16 kHz mono with MediaCodec |
 | `SpeechStream.kt` / `MusicStream.kt` | Feed decoded audio to the voice scorer and pick music windows |
 | `Transcriber.kt` | Vosk speech-to-text wrapper |
+| `Protect.kt` / `ProtectState.kt` | "Protect a photo": uploads, follows the job, saves to Pictures; state survives rotation |
+| `ProtectClient.kt` | Small HttpURLConnection client for the backend API (health, protect, job status, image, cancel) |
+| `res/xml/network_security_config.xml` | Allows plain HTTP, needed for the backend on the home network (see below) |
 | `Models.kt` | Downloads the four models on first use (they are not bundled, so the APK stays small) |
 | `voice-model/` | How the AI-voice model was trained and evaluated |
 
@@ -112,7 +119,33 @@ Not sure which one you have? Use **universal**. It always works.
 4. **Voice check:** tap **Microphone** or **Phone audio**, and allow the microphone and notifications.
    *Phone audio* also asks to "start recording or casting". That's how Android gives an app access to other apps' sound.
 
+### 3. Protect a photo (optional)
+
+1. On your computer, in the `poisoner/` folder of this repo, run `uv run aipoisoner serve --lan`. It listens on port
+   8765 on the whole network and prints an **access token**.
+2. Find the computer's address on your Wi-Fi (Linux: `ip -4 addr`, Windows: `ipconfig`, macOS: *System Settings →
+   Wi-Fi → Details*). It looks like `192.168.1.20`.
+3. In the app, under **Protect a photo**, enter `192.168.1.20:8765` and the token, then tap **Test connection**.
+   You should see the backend version and whether it runs on CPU or GPU.
+4. Choose a strength and method, tap **Choose photo** (or share a photo to *Protect with AI Poisoner*). A Standard
+   photo takes about 1.5 to 3 minutes on a laptop CPU; you can leave the app and come back.
+
+**Why the app allows plain HTTP.** The backend is on your home network at an address like 192.168.1.20, which
+cannot get a public HTTPS certificate, and Android blocks `http://` by default. So `network_security_config.xml`
+allows cleartext. Android cannot limit that to private addresses, so it applies to the whole app, but the only
+plain-HTTP traffic the app makes goes to the address you type in; model downloads stay on `https://`. The backend
+rejects requests without its token, and the photo goes only to your computer, never to the internet. Anyone else on
+the same Wi-Fi could in principle watch the traffic, so use a network you trust.
+
 ## Limits
+
+- **Protect a photo needs your computer running the backend on the same Wi-Fi.** Photos over 30 MB are refused
+  (the app does not shrink them). If the app process is stopped by Android while you are away, a running job is lost
+  and you start again; the computer drops forgotten jobs after an hour.
+- **Protection strength is measured at one AI image encoder only** (see [poisoner/README.md](../poisoner/README.md)).
+  It is not a guarantee against every AI tool, and resizing or heavy editing can weaken it.
+- **Protect a photo has only been tried on an Android emulator** (talking to the backend on the host computer), not
+  on a physical phone or a real home network. The Share-sheet entry was not exercised with a real sharing app.
 
 - **Calls can't be checked directly.** Android does not let any app capture phone calls or WhatsApp/VoIP calls.
   Put the call on speaker and use **Microphone**.
