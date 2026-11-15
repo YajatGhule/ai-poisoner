@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Callable
+from collections.abc import Callable
 
 import torch
 import torch.nn.functional as F

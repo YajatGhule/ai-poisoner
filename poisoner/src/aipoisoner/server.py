@@ -88,7 +88,7 @@ def create_app(protector: Protector | None = None, token: str | None = None) -> 
         try:
             check_options(strength, mode, format)
         except ValueError as e:
-            raise HTTPException(422, str(e))
+            raise HTTPException(422, str(e)) from e
         data = await file.read(MAX_UPLOAD + 1)
         if len(data) > MAX_UPLOAD:
             raise HTTPException(413, "File is larger than 30 MB.")
@@ -96,8 +96,8 @@ def create_app(protector: Protector | None = None, token: str | None = None) -> 
             raise HTTPException(422, "The uploaded file is empty.")
         try:
             job = jobs.submit(Path(file.filename or "image").name, data, strength, mode, format)
-        except QueueFull:
-            raise HTTPException(429, "Too many images are waiting. Try again when some have finished.")
+        except QueueFull as e:
+            raise HTTPException(429, "Too many images are waiting. Try again when some have finished.") from e
         return jobs.describe(job)
 
     @app.get("/api/jobs/{job_id}")

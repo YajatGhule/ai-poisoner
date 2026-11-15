@@ -9,7 +9,7 @@ about files, HTTP or which model is loaded: it takes a tensor and an encoder.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from collections.abc import Callable
 
 import torch
 import torch.nn.functional as F

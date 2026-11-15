@@ -21,7 +21,11 @@ dependencies = [
 aipoisoner = "aipoisoner.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "httpx>=0.27"]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+    "ruff>=0.17.5",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -39,6 +43,13 @@ torch = { index = "pytorch-cpu" }
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["F", "E9", "B", "SIM", "UP"]
+ignore = ["SIM108", "B008"]   # B008: FastAPI's File(...) and Form(...) defaults are the intended style
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

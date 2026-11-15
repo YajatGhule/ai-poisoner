@@ -65,7 +65,7 @@ class JobManager:
     def __init__(self, protector: Protector):
         self.protector = protector
         self._jobs: dict[str, Job] = {}
-        self._queue: "queue.Queue[str | None]" = queue.Queue()
+        self._queue: queue.Queue[str | None] = queue.Queue()
         self._lock = threading.Lock()
         self._thread = threading.Thread(target=self._work, name="aipoisoner-worker", daemon=True)
         self._thread.start()
