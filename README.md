@@ -128,7 +128,22 @@ It's **built and tested on an Android 15 emulator, but not yet on a physical pho
 [latest release](https://github.com/YajatGhule/ai-poisoner/releases/latest). See
 [android/README.md](android/README.md) for how to install it, how it works and how to build it.
 
+## Poisoner: protect your own images
+
+[`poisoner/`](poisoner/) is a local backend (Python) that adds a change that is hard to see but that makes the image
+encoder of Stable Diffusion-type models read your picture wrongly. The extension has a **Protect an image** page and
+a right-click menu for it, and the Android app has a **Protect a photo** section that talks to the same backend over
+your Wi-Fi. A Standard image takes about 1.5 minutes on a laptop CPU.
+
+It is **alpha, and measured at the model's encoder only**: no image generator was trained on protected pictures, so
+the effect on real style copying is not proven, and such protections can be weakened by compression or removal
+tools. The measured numbers and how to reproduce them are in [poisoner/README.md](poisoner/README.md).
+
+```sh
+cd poisoner && uv sync && uv run aipoisoner serve     # then use the extension, or open http://127.0.0.1:8765
+```
+
 ## Not built yet
 
-- **Poisoner**: protect your own uploads (Glaze/Nightshade-style perturbation, e.g. Mist or PhotoGuard on a GPU backend).
 - Continuous video scanning in the extension (videos are currently checked once, from a screenshot).
+- Poison protection tested against a real image generator on a GPU.
