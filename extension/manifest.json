@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "AI Poisoner — AI Image Detector",
+  "name": "AI Poisoner: detect and protect images",
   "short_name": "AI Poisoner",
-  "version": "0.3.0",
-  "version_name": "0.3.0-alpha",
-  "description": "Labels images on any page as likely AI-generated or human-made, on-device.",
-  "permissions": ["offscreen", "storage"],
+  "version": "0.4.0",
+  "version_name": "0.4.0-alpha",
+  "description": "Labels images on any page as likely AI-generated or human-made, on-device, and protects your own images from AI training with a local backend.",
+  "permissions": ["offscreen", "storage", "contextMenus"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js", "type": "module" },
   "content_scripts": [{

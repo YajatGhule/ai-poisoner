@@ -38,3 +38,15 @@ async function poll() {
   setTimeout(poll, 800);
 }
 poll();
+
+// Protect an image: opens the full-tab page; the dot shows whether the local backend answers.
+$('protect').onclick = () => { chrome.tabs.create({ url: chrome.runtime.getURL('protect.html') }); window.close(); };
+async function backend() {
+  const s = await chrome.storage.local.get({ backendUrl: 'http://127.0.0.1:8765' });
+  let ok = false;
+  try { ok = (await fetch(new URL('/api/health', s.backendUrl), { signal: AbortSignal.timeout(2000) })).ok; } catch {}
+  $('bdot').className = `dot ${ok ? 'ready' : 'error'}`;
+  $('bdot').title = ok ? 'Backend is running' : 'Backend is not running (open the page for setup steps)';
+  setTimeout(backend, 5000);
+}
+backend();

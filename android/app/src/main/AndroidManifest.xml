@@ -13,6 +13,7 @@
         android:icon="@drawable/ic_launcher"
         android:roundIcon="@drawable/ic_launcher"
         android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.AiPoisoner">
 
         <activity
@@ -32,6 +33,20 @@
                 <data android:mimeType="video/*" />
             </intent-filter>
         </activity>
+
+        <!-- A second entry in the Share sheet for the same screen: "Protect with AI Poisoner" sends the image to the
+             "Protect a photo" section instead of the AI check. MainActivity tells the two apart by which name was used. -->
+        <activity-alias
+            android:name=".ProtectShareAlias"
+            android:targetActivity=".MainActivity"
+            android:label="Protect with AI Poisoner"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity-alias>
 
         <!-- Labels images on screen in any app -->
         <service

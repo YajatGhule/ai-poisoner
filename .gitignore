@@ -7,3 +7,6 @@ android/app/build/
 android/local.properties
 android/.idea/
 *.onnx
+poisoner/.venv/
+__pycache__/
+.pytest_cache/

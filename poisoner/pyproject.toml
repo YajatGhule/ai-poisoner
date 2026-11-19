@@ -1,0 +1,55 @@
+[project]
+name = "aipoisoner"
+version = "0.4.0"
+description = "Local backend for AI Poisoner: adds a small, hard-to-see change to your images so image-generation models read them wrongly."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = "MIT"
+dependencies = [
+    "torch>=2.4",
+    "diffusers>=0.31",
+    "safetensors>=0.4",
+    "huggingface-hub>=0.25",
+    "pillow>=10.4",
+    "numpy>=1.26",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "python-multipart>=0.0.9",
+]
+
+[project.scripts]
+aipoisoner = "aipoisoner.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+    "ruff>=0.17.5",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aipoisoner"]
+
+# CPU-only PyTorch by default: a small download that works everywhere.
+# For an NVIDIA GPU, see "Using a GPU" in the README.
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["F", "E9", "B", "SIM", "UP"]
+ignore = ["SIM108", "B008"]   # B008: FastAPI's File(...) and Form(...) defaults are the intended style
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

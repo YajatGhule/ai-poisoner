@@ -18,16 +18,24 @@
   .status{display:flex;align-items:center;gap:8px;padding-top:12px;border-top:1px solid var(--faint);color:var(--mute);font-size:12px}
   .dot{width:7px;height:7px;border-radius:50%;background:var(--mute);flex:none}
   .dot.ready{background:#6fbf8a}.dot.loading{background:var(--gold)}.dot.error{background:#e0604f}
+  .open{background:none;border:1px solid var(--faint);border-radius:7px;color:var(--ink);font:inherit;font-size:12px;padding:5px 11px;cursor:pointer}
+  .open:hover{border-color:var(--gold)}
+  .open:focus-visible,.sw:focus-visible,.seg button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+  .lbl{display:flex;align-items:center;gap:8px}
+  .open{background:none;border:1px solid var(--faint);border-radius:7px;color:var(--ink);font:inherit;font-size:12px;padding:5px 11px;cursor:pointer}
+  .open:hover{border-color:var(--gold)}
+  .open:focus-visible,.sw:focus-visible,.seg button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
   .legend{display:flex;gap:12px;margin-top:12px;font-size:11px;color:var(--mute)}
   .legend i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px}
 </style></head>
 <body>
-  <div class="k">High Art · Detector</div>
+  <div class="k">High Art · Detect &amp; protect</div>
   <h1>AI <em>Poisoner</em></h1>
   <div class="row"><span>Scan images on pages</span><button class="sw" id="enabled" aria-pressed="true" aria-label="Enable"></button></div>
   <div class="row"><span>When AI is found</span>
     <div class="seg" id="mode"><button data-v="label">Label</button><button data-v="blur">Blur</button></div></div>
   <div class="row"><span>Sensitivity</span><input type="range" id="sens" min="0.6" max="0.97" step="0.01"></div>
+  <div class="row"><span class="lbl"><span class="dot" id="bdot" title="Backend not checked yet"></span>Protect an image</span><button class="open" id="protect" title="Opens in a new tab">Open</button></div>
   <div class="status"><span class="dot" id="dot"></span><span id="st">Starting…</span></div>
   <div class="legend"><span><i style="background:#e0604f"></i>AI</span><span><i style="background:#c9a45c"></i>Unsure</span><span><i style="background:#6fbf8a"></i>Human</span><span><span style="color:#c9a45c">CR</span> = C2PA</span></div>
   <script src="popup.js"></script>

@@ -13,6 +13,18 @@ object Prefs {
     fun coverAi(ctx: Context) = sp(ctx).getBoolean("cover", false)
     fun setCoverAi(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean("cover", on).apply()
 
+    // "Protect a photo": where the backend on the person's computer is, and what to ask it for.
+    fun protectAddress(ctx: Context) = sp(ctx).getString("protect_address", "") ?: ""
+    fun setProtectAddress(ctx: Context, v: String) = sp(ctx).edit().putString("protect_address", v).apply()
+    fun protectToken(ctx: Context) = sp(ctx).getString("protect_token", "") ?: ""
+    fun setProtectToken(ctx: Context, v: String) = sp(ctx).edit().putString("protect_token", v).apply()
+    /** "light", "standard" or "strong". */
+    fun protectStrength(ctx: Context) = sp(ctx).getString("protect_strength", "standard") ?: "standard"
+    fun setProtectStrength(ctx: Context, v: String) = sp(ctx).edit().putString("protect_strength", v).apply()
+    /** "cloak" or "scramble". */
+    fun protectMode(ctx: Context) = sp(ctx).getString("protect_mode", "cloak") ?: "cloak"
+    fun setProtectMode(ctx: Context, v: String) = sp(ctx).edit().putString("protect_mode", v).apply()
+
     // Stricter than the Chrome extension (0.85): on-screen crops are downscaled and cropped, which pushes
     // real photos up. At 0.95, 0% of real test photos were flagged AI (45% of AI images caught); the rest show "Unsure".
     const val IMAGE_AI_AT = 0.95f

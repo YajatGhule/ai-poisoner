@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Why plain HTTP is allowed: "Protect a photo" talks to the AI Poisoner backend that the person runs on their own
+  computer (`aipoisoner serve` with its LAN option). That server lives at a home-network address such as 192.168.1.20, which cannot
+  get a public HTTPS certificate, so the connection is http://. Android blocks that by default.
+
+  Android's config cannot say "private addresses only" (domain rules do not match IP ranges), so cleartext is allowed
+  app-wide. In practice the only plain-HTTP traffic this app makes is to the address the person types in. Everything
+  else (model downloads) uses https:// URLs and stays encrypted. The backend refuses requests without its access
+  token, and the photo goes to the person's own computer on their own Wi-Fi, never to the internet.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
