@@ -4,7 +4,9 @@ import { env, pipeline, RawImage } from './lib/transformers.min.js';
 const MODEL = 'onnx-community/ai-image-detection-ONNX'; // labels: REAL / FAKE
 const AI_LABEL = 'FAKE';
 
-env.allowLocalModels = false;
+// The model is bundled in models/ (see tools/vendor.mjs), so detection works offline.
+// Builds without it download the model from Hugging Face instead (decided in load()).
+env.localModelPath = chrome.runtime.getURL('models/');
 env.useWasmCache = false; // Cache API can't store chrome-extension:// URLs; the files are local anyway
 env.backends.onnx.wasm.wasmPaths = {
   mjs: chrome.runtime.getURL('lib/ort-wasm-simd-threaded.asyncify.mjs'),
@@ -20,6 +22,10 @@ function load() {
     status.state = 'loading';
     const files = {};
     try {
+      // Bundled model: never touch the network (an optional file missing offline would otherwise throw).
+      const bundled = await fetch(chrome.runtime.getURL(`models/${MODEL}/config.json`)).then(r => r.ok, () => false);
+      env.allowLocalModels = bundled;
+      env.allowRemoteModels = !bundled;
       const clf = await pipeline('image-classification', MODEL, {
         dtype: 'q8',
         device: 'wasm',
