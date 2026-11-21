@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import os
 import json
 import secrets
 import sys
@@ -39,8 +41,73 @@ def cmd_serve(args) -> int:
               f"In the phone app, enter this computer's address (port {args.port}) and that token.")
     elif args.token:
         token = args.token
-    print(f"AI Poisoner backend {__version__}: http://{'127.0.0.1' if host == '0.0.0.0' else host}:{args.port}")
+    print(f"SENTINEL backend {__version__}: http://{'127.0.0.1' if host == '0.0.0.0' else host}:{args.port}")
     uvicorn.run(create_app(_protector(args), token), host=host, port=args.port, log_level="warning")
+    return 0
+
+
+def cmd_app(args) -> int:
+    """The SENTINEL desktop app: the local server plus its page in an app window."""
+    import os
+    import shutil
+    import subprocess
+    import threading
+    import time
+    import urllib.request
+    import webbrowser
+
+    import uvicorn
+
+    from .detect import Detector
+    from .server import create_app
+
+    url = f"http://127.0.0.1:{args.port}/"
+    try:   # already running (e.g. launched twice): just open another window
+        urllib.request.urlopen(url + "api/health", timeout=1)
+        running = True
+    except OSError:
+        running = False
+    server = None
+    if not running:
+        samples = Path(args.samples).expanduser() if args.samples else None
+        detector = Detector()
+        app = create_app(_protector(args), detector=detector, samples=samples)
+        server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=args.port, log_level="warning"))
+        threading.Thread(target=server.run, daemon=True).start()
+
+        def warm():   # load the detectors now, so the first check in a demo is quick
+            for kind in ("image", "voice", "music"):
+                try:
+                    detector._get(kind)
+                except Exception as e:   # noqa: BLE001 - shown again, with context, when the check runs
+                    print(f"{kind} model not ready yet: {e}", file=sys.stderr)
+        threading.Thread(target=warm, daemon=True).start()
+        for _ in range(100):
+            if server.started:
+                break
+            time.sleep(0.1)
+    print(f"SENTINEL {__version__}: {url}")
+    if args.no_window:
+        if server:
+            threading.Event().wait()
+        return 0
+    browser = next((shutil.which(b) for b in ("google-chrome-stable", "google-chrome", "chromium", "chromium-browser",
+                                               "microsoft-edge-stable", "microsoft-edge", "brave-browser", "brave")
+                    if shutil.which(b)), None)
+    if browser:
+        # A separate profile makes the window its own process, so closing it also stops the server.
+        profile = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "sentinel" / "window"
+        subprocess.run([browser, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run",
+                        "--no-default-browser-check", "--window-size=1100,900", "--class=SENTINEL"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        webbrowser.open(url)
+        if server:
+            print("Press Ctrl+C to stop.")
+            with contextlib.suppress(KeyboardInterrupt):
+                threading.Event().wait()
+    if server:
+        server.should_exit = True
     return 0
 
 
@@ -96,6 +163,14 @@ def main(argv: list[str] | None = None) -> int:
     _add_common(s)
     s.set_defaults(func=cmd_serve)
 
+    a = sub.add_parser("app", help="open the SENTINEL desktop app (check files for AI, protect images)")
+    a.add_argument("--port", type=int, default=8765)
+    a.add_argument("--samples", default=os.environ.get("SENTINEL_SAMPLES"),
+                   help="folder of demo files to list in the app (or set SENTINEL_SAMPLES)")
+    a.add_argument("--no-window", action="store_true", help="only run the server")
+    _add_common(a)
+    a.set_defaults(func=cmd_app)
+
     p = sub.add_parser("protect", help="protect image files")
     p.add_argument("images", nargs="+")
     p.add_argument("-o", "--out", help="output folder (default: next to each image)")
@@ -119,6 +194,11 @@ def main(argv: list[str] | None = None) -> int:
 
     args = ap.parse_args(argv)
     return args.func(args)
+
+
+def app_main() -> int:
+    """The sentinel command: same as aipoisoner app."""
+    return main(["app", *sys.argv[1:]])
 
 
 if __name__ == "__main__":
