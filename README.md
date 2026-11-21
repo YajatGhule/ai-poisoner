@@ -5,6 +5,22 @@
 > `tools/install-desktop.sh`), and an **Android app** (`android/`). For a demo, follow [docs/DEMO.md](docs/DEMO.md).
 > Since 0.5.0 the extension's detection model is bundled, so it works offline.
 
+## Install on Windows (one line)
+
+Open **PowerShell** (Start menu → type `powershell`) and paste:
+
+```powershell
+irm https://github.com/YajatGhule/ai-poisoner/releases/download/v0.5.0-alpha/install.ps1 | iex
+```
+
+It installs SENTINEL to `%LOCALAPPDATA%\SENTINEL` (no admin rights), adds **SENTINEL** to the Desktop and the
+Start menu, and puts a **SENTINEL Test Files** folder on the Desktop: AI and real voices, images and songs, plus
+`HOW TO TEST.txt` with the expected result for each. It needs about 3 GB and an internet connection while
+installing (Python, PyTorch and the models); after that it works offline. Uninstall from the Start menu.
+The Chrome extension folder is `%LOCALAPPDATA%\SENTINEL\extension` (Load unpacked; the installer copies the path).
+
+Built with `tools/build-windows.sh` (Go launcher `windows/launcher`, installer `windows/install.ps1`).
+
 ## The Chrome extension
 
 A browser extension that labels images on any web page as **AI**, **Unsure**, or **Human**, live, as you scroll.
