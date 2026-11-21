@@ -1,4 +1,11 @@
-# AI Poisoner: AI image detector for Chrome
+# SENTINEL: on-device detection and data poisoning for AI images, voices and music
+
+> **SENTINEL** (formerly AI Poisoner) has three parts: this Chrome extension, a **desktop app** that checks images,
+> voices, songs and videos and protects images (`poisoner/`, start with `uv run aipoisoner app`, or install it with
+> `tools/install-desktop.sh`), and an **Android app** (`android/`). For a demo, follow [docs/DEMO.md](docs/DEMO.md).
+> Since 0.5.0 the extension's detection model is bundled, so it works offline.
+
+## The Chrome extension
 
 A browser extension that labels images on any web page as **AI**, **Unsure**, or **Human**, live, as you scroll.
 Everything runs **on your own computer**. Images are never uploaded anywhere.
@@ -17,7 +24,7 @@ It isn't on the Chrome Web Store yet, so you install it in developer mode. It ta
 ### 1. Download
 
 Go to the [**latest release**](https://github.com/YajatGhule/ai-poisoner/releases/latest) and download
-**`ai-poisoner-v0.1.0.zip`**. Don't use the green "Code → Download ZIP" button: that version is missing
+**`sentinel-v0.5.0.zip`** (or the newest `sentinel-v…zip`). Don't use the green "Code → Download ZIP" button: that version is missing
 the AI runtime files and won't work.
 
 ### 2. Unzip it somewhere permanent
@@ -39,9 +46,9 @@ Click **Load unpacked** and select the folder from step 2 (the one that contains
 
 ### 4. Pin it and try it
 
-Click the puzzle-piece icon in the toolbar, then click the pin next to **AI Poisoner**.
-Open any page with pictures. The **first time**, the extension downloads its detection model
-(about 90 MB, only once). Click the extension icon to see the progress. After that, badges appear on images as you scroll.
+Click the puzzle-piece icon in the toolbar, then click the pin next to **SENTINEL**.
+Open any page with pictures. Badges appear on images as you scroll. The detection model is inside the
+extension, so nothing is downloaded and it works offline.
 
 ### Using it
 
