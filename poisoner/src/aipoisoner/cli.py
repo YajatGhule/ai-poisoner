@@ -98,7 +98,7 @@ def cmd_app(args) -> int:
         # A separate profile makes the window its own process, so closing it also stops the server.
         profile = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "sentinel" / "window"
         subprocess.run([browser, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run",
-                        "--no-default-browser-check", "--window-size=1100,900", "--class=SENTINEL"],
+                        "--no-default-browser-check", "--window-size=1100,900"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
         webbrowser.open(url)
