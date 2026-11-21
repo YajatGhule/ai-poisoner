@@ -49,7 +49,6 @@ def cmd_serve(args) -> int:
 def cmd_app(args) -> int:
     """The SENTINEL desktop app: the local server plus its page in an app window."""
     import os
-    import shutil
     import subprocess
     import threading
     import time
@@ -91,14 +90,13 @@ def cmd_app(args) -> int:
         if server:
             threading.Event().wait()
         return 0
-    browser = next((shutil.which(b) for b in ("google-chrome-stable", "google-chrome", "chromium", "chromium-browser",
-                                               "microsoft-edge-stable", "microsoft-edge", "brave-browser", "brave")
-                    if shutil.which(b)), None)
+    browser = find_browser()
     if browser:
         # A separate profile makes the window its own process, so closing it also stops the server.
-        profile = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "sentinel" / "window"
+        profile = Path(os.environ.get("XDG_CACHE_HOME") or os.environ.get("LOCALAPPDATA") or Path.home() / ".cache") \
+            / "sentinel" / "window"
         subprocess.run([browser, f"--app={url}", f"--user-data-dir={profile}", "--no-first-run",
-                        "--no-default-browser-check", "--window-size=1100,900"],
+                        "--no-default-browser-check", "--disable-background-mode", "--window-size=1100,900"],
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
         webbrowser.open(url)
@@ -108,6 +106,42 @@ def cmd_app(args) -> int:
                 threading.Event().wait()
     if server:
         server.should_exit = True
+    return 0
+
+
+def find_browser() -> str | None:
+    """A Chromium-based browser for the app window: Chrome, Edge (always on Windows 10/11), Chromium or Brave."""
+    import shutil
+    names = ("google-chrome-stable", "google-chrome", "chrome", "chromium", "chromium-browser",
+             "microsoft-edge-stable", "microsoft-edge", "msedge", "brave-browser", "brave")
+    for n in names:
+        if shutil.which(n):
+            return shutil.which(n)
+    if sys.platform == "win32":
+        roots = [os.environ.get(k) for k in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA")]
+        rel = [r"Google\Chrome\Application\chrome.exe", r"Microsoft\Edge\Application\msedge.exe",
+               r"BraveSoftware\Brave-Browser\Application\brave.exe"]
+        for r in rel:
+            for root in roots:
+                if root and Path(root, r).is_file():
+                    return str(Path(root, r))
+    if sys.platform == "darwin":
+        for app in ("Google Chrome", "Microsoft Edge", "Brave Browser", "Chromium"):
+            p = Path(f"/Applications/{app}.app/Contents/MacOS/{app}")
+            if p.is_file():
+                return str(p)
+    return None
+
+
+def cmd_setup(args) -> int:
+    """Download every model now, so the app works offline afterwards."""
+    from .detect import Detector
+    d = Detector()
+    for kind in ("image", "voice", "music"):
+        print(f"{kind} detector: {d.download(kind)}", flush=True)
+    from .models import load
+    load("taesd", "cpu")
+    print("protection encoder (TAESD): ready", flush=True)
     return 0
 
 
@@ -170,6 +204,9 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--no-window", action="store_true", help="only run the server")
     _add_common(a)
     a.set_defaults(func=cmd_app)
+
+    u = sub.add_parser("setup", help="download all models now (for offline use)")
+    u.set_defaults(func=cmd_setup)
 
     p = sub.add_parser("protect", help="protect image files")
     p.add_argument("images", nargs="+")
