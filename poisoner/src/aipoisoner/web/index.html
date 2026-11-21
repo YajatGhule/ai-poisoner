@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI Poisoner: protect an image</title>
+<title>SENTINEL: protect an image</title>
 <style>
   :root{--bg:#0e0d0c;--bg2:#171513;--ink:#ede7db;--mute:#8d867c;--faint:#2e2a27;--gold:#c9a45c;--red:#e0604f;--green:#6fbf8a}
   *{box-sizing:border-box;margin:0}
@@ -48,13 +48,14 @@
   .dot.ok{background:var(--green)}.dot.bad{background:var(--red)}
   .err{color:var(--red)}
   [hidden]{display:none!important}
+  .embed{padding-top:8px}.embed main>.k,.embed main>h1{display:none}
   details{margin-top:16px;color:var(--mute);font-size:13px}
   details p{margin-top:8px;max-width:68ch}
   summary{cursor:pointer;color:var(--ink)}
   @media (max-width:520px){.pair{grid-template-columns:1fr}h1{font-size:32px}}
 </style></head>
 <body><main>
-  <div class="k">High Art · Poisoner</div>
+  <div class="k">SENTINEL · Protect</div>
   <h1>Protect an <em>image</em></h1>
   <p class="lead">Adds a change too small to notice easily, built so that image-generating AI reads your picture as something else. Everything runs on this computer. The image is never uploaded anywhere.</p>
   <div class="status" aria-live="polite"><span class="dot" id="dot"></span><span id="health">Checking the backend…</span></div>
@@ -107,6 +108,7 @@
   <p class="err" id="err" role="alert" hidden></p>
 </main>
 <script>
+if (window !== top) document.body.classList.add('embed');
 const $ = id => document.getElementById(id);
 const token = new URLSearchParams(location.hash.slice(1)).get('token') || '';
 const headers = token ? { 'X-AIP-Token': token } : {};
