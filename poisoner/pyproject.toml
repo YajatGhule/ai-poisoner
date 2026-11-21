@@ -1,6 +1,6 @@
 [project]
 name = "aipoisoner"
-version = "0.4.0"
+version = "0.5.0"
 description = "Local backend for AI Poisoner: adds a small, hard-to-see change to your images so image-generation models read them wrongly."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -15,10 +15,12 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
     "python-multipart>=0.0.9",
+    "onnxruntime>=1.20",
 ]
 
 [project.scripts]
 aipoisoner = "aipoisoner.cli:main"
+sentinel = "aipoisoner.cli:app_main"
 
 [dependency-groups]
 dev = [

@@ -10,3 +10,4 @@ android/.idea/
 poisoner/.venv/
 __pycache__/
 .pytest_cache/
+extension/models/

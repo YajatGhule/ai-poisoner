@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SENTINEL</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230e0d0c'/%3E%3Cpath d='M16 5l9 4v6c0 6-4 10-9 12-5-2-9-6-9-12V9z' fill='none' stroke='%23c9a45c' stroke-width='2.4'/%3E%3C/svg%3E">
+<style>
+  :root{--bg:#0e0d0c;--bg2:#171513;--ink:#ede7db;--mute:#8d867c;--faint:#2e2a27;--gold:#c9a45c;--red:#e0604f;--green:#6fbf8a;--amber:#c9a45c}
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--ink);font:15px/1.5 Inter,ui-sans-serif,system-ui,sans-serif;padding:28px 16px 64px}
+  main{max-width:900px;margin:0 auto}
+  .k{font:11px ui-monospace,"JetBrains Mono",monospace;letter-spacing:.16em;text-transform:uppercase;color:var(--mute)}
+  h1{font:400 46px/1.05 "Instrument Serif",Georgia,serif;letter-spacing:.02em;margin:6px 0 8px;color:var(--gold)}
+  h2{font:400 22px/1.2 "Instrument Serif",Georgia,serif;margin:0 0 6px}
+  p.lead{color:var(--mute);max-width:66ch;margin-bottom:18px}
+  .status{display:flex;align-items:center;gap:8px;color:var(--mute);font-size:13px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--mute);flex:none}
+  .dot.ok{background:var(--green)}.dot.bad{background:var(--red)}
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--faint);margin:20px 0 0}
+  .tabs button{font:inherit;background:none;border:0;color:var(--mute);padding:10px 16px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tabs button[aria-selected=true]{color:var(--ink);border-color:var(--gold)}
+  .card{background:var(--bg2);border:1px solid var(--faint);border-radius:12px;padding:20px;margin-top:16px}
+  #drop{display:block;border:1.5px dashed var(--faint);border-radius:12px;padding:34px 16px;text-align:center;color:var(--mute);cursor:pointer;transition:.15s;position:relative}
+  #drop:hover,#drop.over,#drop:focus-within{border-color:var(--gold);color:var(--ink)}
+  #drop b{color:var(--ink);font-weight:500}
+  #drop input{position:absolute;opacity:0;width:1px;height:1px}
+  .samples{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .samples button{font:12px/1.2 ui-monospace,monospace;background:none;border:1px solid var(--faint);color:var(--ink);border-radius:999px;padding:6px 10px;cursor:pointer}
+  .samples button:hover{border-color:var(--gold)}
+  .samples h3{width:100%;font:11px ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);margin-top:8px}
+  .result{display:grid;grid-template-columns:minmax(0,260px) 1fr;gap:20px;align-items:start}
+  .result.audio{grid-template-columns:1fr}
+  .result img{width:100%;border-radius:8px;display:block;background:#000}
+  audio,video{width:100%;margin-top:4px}
+  .verdict{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:13px;border-radius:999px;padding:4px 12px;background:var(--faint)}
+  .verdict i{width:9px;height:9px;border-radius:50%}
+  .v-ai i{background:var(--red)}.v-unsure i{background:var(--amber)}.v-human i{background:var(--green)}.v-none i{background:var(--mute)}
+  .head{font:400 30px/1.15 "Instrument Serif",Georgia,serif;margin:10px 0 4px}
+  .sub{color:var(--mute);font-size:13px}
+  .meter{height:8px;border-radius:4px;background:linear-gradient(90deg,var(--green) 0 60%,var(--amber) 60% 85%,var(--red) 85%);position:relative;margin:16px 0 4px;opacity:.85}
+  .meter b{position:absolute;top:-5px;width:3px;height:18px;background:var(--ink);border-radius:2px;transform:translateX(-1px)}
+  .scale{display:flex;justify-content:space-between;font-size:11px;color:var(--mute)}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+  .panel{border:1px solid var(--faint);border-radius:10px;padding:14px}
+  .panel .k{margin-bottom:6px}
+  svg.tl{width:100%;height:46px;display:block;margin-top:10px}
+  .busy{display:flex;align-items:center;gap:12px;color:var(--mute)}
+  .spin{width:18px;height:18px;border:2px solid var(--faint);border-top-color:var(--gold);border-radius:50%;animation:s 1s linear infinite}
+  @keyframes s{to{transform:rotate(360deg)}}
+  .err{color:var(--red);margin-top:12px}
+  iframe{width:100%;height:1500px;border:0;margin-top:8px;background:var(--bg)}
+  details{margin-top:18px;color:var(--mute);font-size:13px}
+  details p{margin-top:6px;max-width:72ch}
+  summary{cursor:pointer;color:var(--ink)}
+  .treat{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:10px;color:var(--mute);font-size:13px}
+  .treat small{flex-basis:100%;font-size:12px}
+  .seg{display:flex;border:1px solid var(--faint);border-radius:8px;overflow:hidden}
+  .seg button{font:inherit;background:none;border:0;color:var(--mute);padding:6px 12px;cursor:pointer}
+  .seg button[aria-pressed=true]{background:var(--faint);color:var(--ink)}
+  .meter.music{background:linear-gradient(90deg,var(--green) 0 30%,var(--amber) 30% 80%,var(--red) 80%)}
+  .row2.one{grid-template-columns:1fr}
+  [hidden]{display:none!important}
+  @media (max-width:640px){.result,.row2{grid-template-columns:1fr}h1{font-size:38px}}
+</style></head>
+<body><main>
+  <div class="k">Group G14 · Structured Innovation with Design Thinking</div>
+  <h1>SENTINEL</h1>
+  <p class="lead">On-device detection and data poisoning for AI images, voices and music. Everything runs on this computer: nothing you check or protect is uploaded anywhere.</p>
+  <div class="status" role="status"><span class="dot" id="dot"></span><span id="health">Starting…</span></div>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" id="t-check" aria-selected="true" aria-controls="p-check">Check a file</button>
+    <button role="tab" id="t-protect" aria-selected="false" aria-controls="p-protect">Protect an image</button>
+  </div>
+
+  <section id="p-check" role="tabpanel" aria-labelledby="t-check">
+    <div class="card">
+      <label id="drop"><input type="file" id="file" accept="image/*,audio/*,video/*">
+        <span><b>Choose a file</b> or drop one here<br><small>A picture, a voice recording, a song, or a video</small></span></label>
+      <div class="samples" id="samples" hidden></div>
+    </div>
+    <div class="card" id="busy" hidden><div class="busy"><span class="spin"></span><span id="busytext">Checking…</span></div></div>
+    <div class="card" id="out" hidden></div>
+    <div class="treat" id="treat" hidden><span>This recording is</span>
+      <div class="seg"><button type="button" data-v="both">Not sure</button><button type="button" data-v="speech">Speech</button><button type="button" data-v="song">A song</button></div>
+      <small>The voice model is made for speech and the music model for songs. Pick one to hide the other result.</small></div>
+    <p class="err" id="err" role="alert" hidden></p>
+    <details><summary>How sure is this, and what can it not do?</summary>
+      <p><b>Images:</b> a ViT classifier (AUC about 0.87 on our 36-image test set). AI at 85% or more, Human below 60%, Unsure in between. Real photos with heavy edits or unusual lighting can land in Unsure. Generator metadata (C2PA, IPTC, Stable Diffusion settings) is trusted over the model when present.</p>
+      <p><b>Voices:</b> a wav2vec2-based model scores every 4-second window. Reliable on Kokoro-style TTS voices, weaker on engines it never saw, which mostly come out Unsure. Spliced AI stretches are shown with timestamps.</p>
+      <p><b>Music:</b> SONICS SpecTTTra scores up to 12 five-second windows. Suno is caught well, short Udio clips are often missed. The voice model is made for speech, so ignore its result for songs.</p>
+    </details>
+  </section>
+
+  <section id="p-protect" role="tabpanel" aria-labelledby="t-protect" hidden>
+    <iframe id="pframe" title="Protect an image" data-src="/protect"></iframe>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const pct = p => Math.round(p * 100) + '%';
+const LABEL = { ai: 'AI', unsure: 'Unsure', human: 'Human', null: 'Not enough' };
+let busy = false, objUrl = null, last = null, treat = 'both';
+
+for (const t of ['check', 'protect']) {
+  $('t-' + t).onclick = () => {
+    for (const u of ['check', 'protect']) {
+      $('t-' + u).setAttribute('aria-selected', u === t);
+      $('p-' + u).hidden = u !== t;
+    }
+    const f = $('pframe');
+    if (t === 'protect' && !f.src) f.src = f.dataset.src;
+  };
+}
+
+async function health() {
+  try {
+    const h = await (await fetch('/api/health')).json();
+    const d = h.detectors || {};
+    const missing = Object.entries(d).filter(([, ok]) => !ok).map(([k]) => k);
+    $('dot').className = 'dot ok';
+    $('health').textContent = `Running on this computer (${h.device.toUpperCase()}) · ` +
+      (missing.length ? `the ${missing.join(', ')} model${missing.length > 1 ? 's' : ''} will download on first use` : 'all detectors ready offline');
+  } catch { $('dot').className = 'dot bad'; $('health').textContent = 'The SENTINEL backend is not answering.'; }
+}
+
+async function samples() {
+  const list = await (await fetch('/api/samples')).json().catch(() => []);
+  if (!list.length) return;
+  const box = $('samples');
+  const groups = {};
+  for (const s of list) (groups[s.name.split('/').slice(0, -1).join(' / ') || 'samples'] ??= []).push(s);
+  box.innerHTML = '';
+  for (const [g, items] of Object.entries(groups)) {
+    const h = document.createElement('h3'); h.textContent = 'Demo files · ' + g; box.append(h);
+    for (const s of items.slice(0, 24)) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.textContent = s.name.split('/').pop();
+      b.onclick = () => {
+        setTreat(/(^|\/)music\//.test(s.name) ? 'song' : /(^|\/)voice\//.test(s.name) ? 'speech' : 'both');
+        run(fetch(`/api/samples/${s.id}/check`, { method: 'POST' }), s.name.split('/').pop(), `/api/samples/${s.id}/file`);
+      };
+      box.append(b);
+    }
+  }
+  box.hidden = false;
+}
+
+function pick(f) {
+  if (!f || busy) return;
+  const fd = new FormData(); fd.append('file', f);
+  if (objUrl) URL.revokeObjectURL(objUrl);
+  objUrl = URL.createObjectURL(f);
+  setTreat('both');
+  run(fetch('/api/check', { method: 'POST', body: fd }), f.name, objUrl, f.type);
+}
+
+async function run(req, name, src, type = '') {
+  if (busy) return;
+  busy = true; $('err').hidden = true; $('out').hidden = true; $('treat').hidden = true; $('busy').hidden = false;
+  const audioish = /\.(wav|mp3|m4a|aac|ogg|opus|flac|mp4|mov|mkv|webm|3gp)$/i.test(name) || /^(audio|video)/.test(type);
+  $('busytext').textContent = `Checking ${name}…` + (audioish ? ' Long recordings take a few seconds per minute.' : '');
+  try {
+    const r = await req;
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || 'The check failed.');
+    show(j, src, type);
+  } catch (e) { $('err').textContent = String(e.message || e); $('err').hidden = false; }
+  finally { busy = false; $('busy').hidden = true; }
+}
+
+const badge = v => `<span class="verdict v-${v ?? 'none'}"><i></i>${LABEL[v]}</span>`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+function setTreat(v) {
+  treat = v;
+  for (const b of document.querySelectorAll('#treat button')) b.setAttribute('aria-pressed', b.dataset.v === v);
+}
+for (const b of document.querySelectorAll('#treat button')) b.onclick = () => { setTreat(b.dataset.v); if (last) show(...last); };
+
+function show(j, src, type) {
+  last = [j, src, type];
+  const out = $('out');
+  $('treat').hidden = j.kind === 'image';
+  if (j.kind === 'image') {
+    out.innerHTML = `<div class="result"><img src="${src}" alt="${esc(j.name)}">
+      <div><div class="k">${esc(j.name)} · ${j.size.join(' × ')} px</div>
+        <div style="margin-top:10px">${badge(j.verdict)}</div>
+        <div class="head">${esc(j.headline)}</div>
+        <div class="meter"><b style="left:${j.score * 100}%"></b></div>
+        <div class="scale"><span>Human</span><span>Unsure</span><span>AI</span></div>
+        <p class="sub" style="margin-top:10px">${j.why ? 'Decided by metadata: ' + esc(j.why) + '. ' : ''}${j.c2pa ? 'Carries C2PA Content Credentials. ' : ''}Model score ${pct(j.score)} AI.</p>
+      </div></div>`;
+  } else {
+    const v = j.voice, m = j.music, video = /^video/.test(type) || /\.(mp4|mov|mkv|webm)$/i.test(j.name);
+    const player = video ? `<video controls src="${src}"></video>` : `<audio controls src="${src}"></audio>`;
+    const stretches = v.stretches.length ? 'Sounds AI at ' + v.stretches.map(s => s[2]).join(', ') : 'No stretch sounds AI';
+    out.innerHTML = `<div class="result audio"><div>
+        <div class="k">${esc(j.name)} · ${clock(j.seconds)}</div>${player}
+        <div class="row2${treat === 'both' ? '' : ' one'}">
+          <div class="panel"${treat === 'song' ? ' hidden' : ''}><div class="k">Voice (speech)</div>${badge(v.verdict)}
+            <div class="head" style="font-size:24px">${esc(v.headline)}</div>
+            <p class="sub">${v.windows ? `${pct(v.ai_share)} of ${v.windows} windows sound AI · ${stretches}` : 'No clear speech found'}</p>
+            ${timeline(v.timeline, j.seconds)}</div>
+          <div class="panel"${treat === 'speech' ? ' hidden' : ''}><div class="k">Music</div>${m ? badge(m.verdict) : badge(null)}
+            <div class="head" style="font-size:24px">${m ? esc(m.headline.replace('Music: ', '')) : 'No music found'}</div>
+            ${m ? `<div class="meter music"><b style="left:${m.score * 100}%"></b></div><div class="scale"><span>Human</span><span>Unsure</span><span>AI</span></div>
+            <p class="sub" style="margin-top:8px">Mean of ${m.windows} five-second windows.</p>` : ''}</div>
+        </div></div></div>`;
+  }
+  out.hidden = false;
+}
+
+function timeline(tl, total) {
+  if (!tl.length) return '';
+  const W = 600, H = 40, w = Math.max(2, W * 4 / Math.max(total, 4));
+  const bars = tl.map(([t, p]) => `<rect x="${(t / total * W).toFixed(1)}" y="${(H - 6 - p * (H - 10)).toFixed(1)}" width="${w.toFixed(1)}" height="${(6 + p * (H - 10)).toFixed(1)}" fill="${p >= .8 ? '#e0604f' : p >= .4 ? '#c9a45c' : '#6fbf8a'}" opacity=".75"/>`).join('');
+  return `<svg class="tl" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="AI score over time">${bars}</svg>
+    <div class="scale"><span>0:00</span><span>AI score over time</span><span>${clock(total)}</span></div>`;
+}
+function clock(s) { s = Math.floor(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
+
+$('file').onchange = e => { pick(e.target.files[0]); e.target.value = ''; };
+const drop = $('drop');
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); pick(e.dataTransfer.files[0]); };
+health(); samples(); setInterval(health, 15000);
+</script>
+</body></html>

@@ -1,4 +1,4 @@
-// Builds dist/ai-poisoner-v<version>.zip, ready for "Load unpacked" (after unzipping) or the Chrome Web Store.
+// Builds dist/sentinel-v<version>.zip, ready for "Load unpacked" (after unzipping) or the Chrome Web Store.
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 
@@ -8,7 +8,7 @@ if (!existsSync(ext + 'lib/transformers.min.js')) execFileSync('node', [new URL(
 
 const { version } = JSON.parse(readFileSync(ext + 'manifest.json', 'utf8'));
 mkdirSync(dist, { recursive: true });
-const zip = `${dist}ai-poisoner-v${version}.zip`;
+const zip = `${dist}sentinel-v${version}.zip`;
 rmSync(zip, { force: true });
 execFileSync('bsdtar', ['-a', '-cf', zip, '-C', ext, '.'], { stdio: 'inherit' });
 console.log('wrote', zip);

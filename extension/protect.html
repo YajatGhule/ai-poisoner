@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI Poisoner: protect an image</title>
+<title>SENTINEL: protect an image</title>
 <style>
   :root{--bg:#0e0d0c;--bg2:#171513;--ink:#ede7db;--mute:#8d867c;--faint:#2e2a27;--gold:#c9a45c;--red:#e0604f;--green:#6fbf8a}
   *{box-sizing:border-box;margin:0}
@@ -61,16 +61,16 @@
   @media (max-width:520px){.pair{grid-template-columns:1fr}h1{font-size:32px}}
 </style></head>
 <body><main>
-  <div class="k">High Art · Poisoner</div>
+  <div class="k">SENTINEL · Protect</div>
   <h1>Protect an <em>image</em></h1>
   <p class="lead">Adds a change too small to notice easily, built so that image-generating AI reads your picture as something else. Everything runs on this computer. The image is never uploaded anywhere.</p>
   <div class="status" role="status" aria-live="polite"><span class="dot" id="dot"></span><span id="health">Checking the backend…</span></div>
 
   <section class="card setup" id="setup" hidden aria-labelledby="setup-h">
     <h2 id="setup-h">The backend is <em>not running</em></h2>
-    <p>Protecting an image needs a small program on your computer (the backend). It does the heavy work so your picture never leaves this machine. Open a terminal in the AI Poisoner folder and start it:</p>
+    <p>Protecting an image needs a small program on your computer (the backend). It does the heavy work so your picture never leaves this machine. Open the <b>SENTINEL</b> desktop app (it starts the backend), or start it from a terminal in the project folder:</p>
     <pre>cd poisoner
-uv run aipoisoner serve</pre>
+uv run aipoisoner app</pre>
     <p>This page checks again every few seconds and will switch to the form by itself. If you started it on another address, change it under "Backend address" below.</p>
     <div class="row" style="margin-top:14px"><button class="ghost" id="retry" type="button">Retry</button><span class="hint" id="retrynote" style="min-height:0;margin:0"></span></div>
   </section>

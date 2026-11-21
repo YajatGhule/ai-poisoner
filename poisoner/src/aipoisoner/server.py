@@ -15,15 +15,18 @@ from urllib.parse import quote
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from . import __version__
 from .attack import MODES, STRENGTHS
+from .detect import AUDIO_EXT, IMAGE_EXT, CheckError, Detector
 from .imageio import FORMATS
 from .jobs import JobManager, QueueFull
 from .protector import Protector, check_options
 
 MAX_UPLOAD = 30 * 1024 * 1024
+MAX_CHECK = 200 * 1024 * 1024
 WEB = Path(__file__).parent / "web"
 
 # Pages that may call the API from a browser: this server's own page, and extensions.
@@ -32,8 +35,10 @@ ALLOWED_ORIGIN = re.compile(
     r"|https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?)$")
 
 
-def create_app(protector: Protector | None = None, token: str | None = None) -> FastAPI:
+def create_app(protector: Protector | None = None, token: str | None = None,
+               detector: Detector | None = None, samples: Path | None = None) -> FastAPI:
     protector = protector or Protector()
+    detector = detector or Detector()
     jobs = JobManager(protector)
 
     @asynccontextmanager
@@ -41,7 +46,7 @@ def create_app(protector: Protector | None = None, token: str | None = None) -> 
         yield
         jobs.shutdown()
 
-    app = FastAPI(title="AI Poisoner backend", version=__version__, lifespan=lifespan,
+    app = FastAPI(title="SENTINEL backend", version=__version__, lifespan=lifespan,
                   docs_url="/api/docs", redoc_url=None, openapi_url="/api/openapi.json")
     app.state.jobs = jobs
     app.add_middleware(
@@ -57,7 +62,7 @@ def create_app(protector: Protector | None = None, token: str | None = None) -> 
             origin = request.headers.get("origin")
             same = origin and origin == f"{request.url.scheme}://{request.headers.get('host', '')}"
             if origin and not same and not ALLOWED_ORIGIN.match(origin):
-                return JSONResponse({"detail": "This origin may not use the AI Poisoner backend."}, 403)
+                return JSONResponse({"detail": "This origin may not use the SENTINEL backend."}, 403)
             if token and request.method != "OPTIONS" and request.url.path != "/api/health":
                 given = request.headers.get("x-aip-token") or request.query_params.get("token") or ""
                 if not hmac.compare_digest(given.encode(), token.encode()):
@@ -79,7 +84,7 @@ def create_app(protector: Protector | None = None, token: str | None = None) -> 
             "token_required": bool(token), **jobs.counts(),
             "strengths": {k: {"eps_255": round(v.eps * 255, 1), "steps": v.steps, "work_px": v.work_px}
                           for k, v in STRENGTHS.items()},
-            "modes": list(MODES), "formats": sorted(FORMATS),
+            "modes": list(MODES), "formats": sorted(FORMATS), "detectors": detector.status(),
         }
 
     @app.post("/api/protect", status_code=202)
@@ -128,8 +133,52 @@ def create_app(protector: Protector | None = None, token: str | None = None) -> 
             raise HTTPException(404, "No such job.")
         return {"ok": True}
 
+    @app.post("/api/check")
+    async def check(file: UploadFile = File(...)):
+        data = await file.read(MAX_CHECK + 1)
+        if len(data) > MAX_CHECK:
+            raise HTTPException(413, "File is larger than 200 MB.")
+        if not data:
+            raise HTTPException(422, "The uploaded file is empty.")
+        try:
+            return await run_in_threadpool(detector.check_file, Path(file.filename or "file").name, data)
+        except CheckError as e:
+            raise HTTPException(422, str(e)) from e
+
+    def sample_files() -> list[Path]:
+        if not samples or not samples.is_dir():
+            return []
+        ok = IMAGE_EXT | AUDIO_EXT
+        return sorted(p for p in samples.rglob("*") if p.is_file() and p.suffix.lower() in ok)[:200]
+
+    @app.get("/api/samples")
+    def list_samples():
+        return [{"id": i, "name": str(p.relative_to(samples)), "size": p.stat().st_size}
+                for i, p in enumerate(sample_files())]
+
+    @app.get("/api/samples/{i}/file")
+    def sample_file(i: int):
+        files = sample_files()
+        if not 0 <= i < len(files):
+            raise HTTPException(404, "No such sample.")
+        return FileResponse(files[i])
+
+    @app.post("/api/samples/{i}/check")
+    async def check_sample(i: int):
+        files = sample_files()
+        if not 0 <= i < len(files):
+            raise HTTPException(404, "No such sample.")
+        try:
+            return await run_in_threadpool(detector.check_file, files[i].name, files[i].read_bytes())
+        except CheckError as e:
+            raise HTTPException(422, str(e)) from e
+
     @app.get("/", include_in_schema=False)
     def index():
+        return FileResponse(WEB / "app.html", headers={"Cache-Control": "no-cache"})
+
+    @app.get("/protect", include_in_schema=False)
+    def protect_page():
         return FileResponse(WEB / "index.html", headers={"Cache-Control": "no-cache"})
 
     return app

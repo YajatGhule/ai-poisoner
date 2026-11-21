@@ -97,6 +97,8 @@ def test_queue_limit_and_cancel(client, monkeypatch):
         assert j.status_code == 404 or wait(client, i)["status"] in ("cancelled", "done")
 
 
-def test_web_page_is_served(client):
+def test_web_pages_are_served(client):
     r = client.get("/")
+    assert r.status_code == 200 and "SENTINEL" in r.text and "Check a file" in r.text
+    r = client.get("/protect")
     assert r.status_code == 200 and "Protect an" in r.text
