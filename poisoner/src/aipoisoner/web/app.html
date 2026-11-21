@@ -65,7 +65,8 @@
   <div class="k">Group G14 · Structured Innovation with Design Thinking</div>
   <h1>SENTINEL</h1>
   <p class="lead">On-device detection and data poisoning for AI images, voices and music. Everything runs on this computer: nothing you check or protect is uploaded anywhere.</p>
-  <div class="status" role="status"><span class="dot" id="dot"></span><span id="health">Starting…</span></div>
+  <div class="status" role="status"><span class="dot" id="dot"></span><span id="health">Starting…</span>
+    <a href="/gallery" target="_blank" rel="noopener" style="margin-left:auto;color:var(--gold)">Test page for the Chrome extension ↗</a></div>
 
   <div class="tabs" role="tablist">
     <button role="tab" id="t-check" aria-selected="true" aria-controls="p-check">Check a file</button>
@@ -136,7 +137,7 @@ async function samples() {
       const b = document.createElement('button');
       b.type = 'button'; b.textContent = s.name.split('/').pop();
       b.onclick = () => {
-        setTreat(/(^|\/)music\//.test(s.name) ? 'song' : /(^|\/)voice\//.test(s.name) ? 'speech' : 'both');
+        setTreat(/music|song/i.test(s.name) ? 'song' : /voice|speech/i.test(s.name) ? 'speech' : 'both');
         run(fetch(`/api/samples/${s.id}/check`, { method: 'POST' }), s.name.split('/').pop(), `/api/samples/${s.id}/file`);
       };
       box.append(b);

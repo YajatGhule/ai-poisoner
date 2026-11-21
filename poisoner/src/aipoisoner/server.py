@@ -8,6 +8,7 @@ network (for the phone app) and then every API call needs the access token.
 from __future__ import annotations
 
 import hmac
+import html
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -33,6 +34,20 @@ WEB = Path(__file__).parent / "web"
 ALLOWED_ORIGIN = re.compile(
     r"^(chrome-extension://[a-p]{32}|moz-extension://[0-9a-f-]{36}"
     r"|https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?)$")
+
+
+GALLERY = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>SENTINEL test page</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;margin:0;padding:24px 16px;background:#fafafa;color:#222}
+main{max-width:1100px;margin:0 auto}h1{margin:0 0 4px}p{color:#555;max-width:70ch}
+.g{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin-top:18px}
+figure{margin:0;background:#fff;border:1px solid #ddd;border-radius:10px;overflow:hidden}
+img{width:100%;height:200px;object-fit:cover;display:block}figcaption{font-size:12px;padding:6px 10px;color:#666}
+</style></head><body><main><h1>SENTINEL test page</h1>
+<p>A page of real and AI-made pictures for testing the SENTINEL Chrome extension. With the extension on, each picture
+gets an <b>AI</b>, <b>Unsure</b> or <b>Human</b> badge within a few seconds. The file name says what it really is.
+Right-click a picture and choose <i>Protect this image with SENTINEL</i> to try the protection.</p>
+<div class="g">{{CELLS}}</div></main></body></html>"""
 
 
 def create_app(protector: Protector | None = None, token: str | None = None,
@@ -172,6 +187,18 @@ def create_app(protector: Protector | None = None, token: str | None = None,
             return await run_in_threadpool(detector.check_file, files[i].name, files[i].read_bytes())
         except CheckError as e:
             raise HTTPException(422, str(e)) from e
+
+    @app.get("/gallery", include_in_schema=False)
+    def gallery():
+        files = sample_files()
+        imgs = [(i, p) for i, p in enumerate(files) if p.suffix.lower() in IMAGE_EXT]
+        cells = "".join(
+            f'<figure><img src="/api/samples/{i}/file" alt="{html.escape(p.name)}" loading="lazy">'
+            f'<figcaption>{html.escape(p.name)}</figcaption></figure>' for i, p in imgs)
+        if not imgs:
+            cells = "<p>No demo images found. Start the app with --samples pointing at the test files folder.</p>"
+        page = GALLERY.replace("{{CELLS}}", cells)
+        return Response(page, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
     @app.get("/", include_in_schema=False)
     def index():

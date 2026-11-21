@@ -90,6 +90,8 @@ def test_check_endpoint(protector, tmp_path):
         assert [s["name"] for s in lst] == ["images/x.png"]
         assert c.post("/api/samples/0/check").json()["name"] == "x.png"
         assert c.get("/api/samples/0/file").status_code == 200
+        g = c.get("/gallery")
+        assert g.status_code == 200 and "/api/samples/0/file" in g.text and "x.png" in g.text
         assert c.post("/api/samples/5/check").status_code == 404
         assert set(c.get("/api/health").json()["detectors"]) == {"image", "voice", "music"}
 
