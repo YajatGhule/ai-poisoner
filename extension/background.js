@@ -64,7 +64,7 @@ chrome.contextMenus.onClicked.addListener(info => {
 
 chrome.runtime.onInstalled.addListener(async () => {
   chrome.contextMenus.removeAll(() => chrome.contextMenus.create({
-    id: MENU, title: 'Protect this image with AI Poisoner', contexts: ['image'],
+    id: MENU, title: 'Protect this image with SENTINEL', contexts: ['image'],
   }));
   const cur = await chrome.storage.sync.get(DEFAULTS);
   await chrome.storage.sync.set(cur);
