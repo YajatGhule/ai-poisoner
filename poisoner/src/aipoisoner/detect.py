@@ -245,9 +245,16 @@ def decode_audio(path: str) -> np.ndarray:
     """Any audio or video file to 16 kHz mono float32, using ffmpeg."""
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
+        try:
+            import imageio_ffmpeg
+            ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:   # noqa: BLE001 - optional fallback
+            ffmpeg = None
+    if not ffmpeg:
         raise CheckError("Checking audio and video needs ffmpeg. Install it and restart the app.")
+    flags = {"creationflags": 0x08000000} if os.name == "nt" else {}   # no console window flash on Windows
     r = subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-i", path, "-t", str(MAX_AUDIO_SEC), "-vn",
-                        "-ac", "1", "-ar", str(RATE), "-f", "f32le", "-"], capture_output=True, timeout=300)
+                        "-ac", "1", "-ar", str(RATE), "-f", "f32le", "-"], capture_output=True, timeout=300, **flags)
     if r.returncode != 0 or not r.stdout:
         raise CheckError("This file has no sound track that could be read.")
     return np.frombuffer(r.stdout, dtype=np.float32).copy()
