@@ -21,7 +21,12 @@
     $Tests = Join-Path $Desktop 'SENTINEL Test Files'
 
     function Step($msg) { Write-Host ''; Write-Host "==> $msg" -ForegroundColor Cyan }
-    function Get-File($url, $out) { Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $out }
+    # For testing a build before it is released: SENTINEL_LOCAL_ASSETS = a folder holding the release files.
+    function Get-File($url, $out) {
+        $local = if ($env:SENTINEL_LOCAL_ASSETS) { Join-Path $env:SENTINEL_LOCAL_ASSETS (Split-Path $url -Leaf) }
+        if ($local -and (Test-Path $local)) { Copy-Item $local $out }
+        else { Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $out }
+    }
 
     Write-Host 'SENTINEL: on-device detection and data poisoning for AI images, voices and music' -ForegroundColor Yellow
     Write-Host "Installing $Version to $Dest"
@@ -105,6 +110,8 @@
     Write-Host '    chrome://extensions > Developer mode > Load unpacked > paste the folder path'
     Write-Host "  Uninstall:    Start menu > Uninstall SENTINEL"
 
-    Start-Process -FilePath (Join-Path $Dest 'SENTINEL.exe') -ArgumentList "--samples `"$Tests`""
-    Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$Tests`""
+    if (-not $env:SENTINEL_NO_LAUNCH) {
+        Start-Process -FilePath (Join-Path $Dest 'SENTINEL.exe') -ArgumentList "--samples `"$Tests`""
+        Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$Tests`""
+    }
 }

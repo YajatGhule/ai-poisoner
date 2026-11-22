@@ -10,7 +10,8 @@ rm -rf "$out"; mkdir -p "$out"
 [[ -f "$repo/extension/models/onnx-community/ai-image-detection-ONNX/onnx/model_quantized.onnx" ]] || { echo "run 'pnpm build' first" >&2; exit 1; }
 
 # Icon (multi-size .ico) for the exe and the shortcuts.
-magick "$repo/extension/icons/128.png" -define icon:auto-resize=128,64,48,32,16 "$out/sentinel.ico"
+IM="$(command -v magick || command -v convert)"   # ImageMagick 7 or 6
+"$IM" "$repo/extension/icons/128.png" -define icon:auto-resize=128,64,48,32,16 "$out/sentinel.ico"
 
 # The launcher (a GUI-subsystem exe, so no console window). The shortcuts carry the icon.
 (
