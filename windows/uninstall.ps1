@@ -8,7 +8,7 @@ Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.
 Start-Sleep -Seconds 1
 $Desktop = [Environment]::GetFolderPath('Desktop')
 $Programs = [Environment]::GetFolderPath('Programs')
-Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $Desktop 'SENTINEL.lnk'), (Join-Path $Programs 'SENTINEL.lnk'), (Join-Path $Programs 'Uninstall SENTINEL.lnk')
+Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $Desktop 'SENTINEL.lnk'), (Join-Path $Programs 'SENTINEL.lnk'), (Join-Path $Programs 'Uninstall SENTINEL.lnk'), (Join-Path $Programs 'Install SENTINEL Chrome extension.lnk')
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $Dest
 if (Test-Path $Dest) { Write-Host "Some files are still in use. Close SENTINEL and run this again: $Dest" -ForegroundColor Yellow }
 else { Write-Host 'SENTINEL was removed.' -ForegroundColor Green }

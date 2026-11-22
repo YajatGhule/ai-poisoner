@@ -90,6 +90,15 @@
             $l.Description = 'Check images, voices and music for AI, and protect your images. Runs on this computer.'
             $l.Save()
         }
+        $ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        foreach ($lnkPath in (Join-Path $Programs 'Install SENTINEL Chrome extension.lnk'), (Join-Path $Tests 'Install the Chrome extension.lnk')) {
+            $e = $shell.CreateShortcut($lnkPath)
+            $e.TargetPath = $ps
+            $e.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$Dest\install-extension.ps1`""
+            $e.IconLocation = "$icon,0"
+            $e.Description = 'Opens the browser extensions page and guides you through loading SENTINEL.'
+            $e.Save()
+        }
         $u = $shell.CreateShortcut((Join-Path $Programs 'Uninstall SENTINEL.lnk'))
         $u.TargetPath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
         $u.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$Dest\uninstall.ps1`""
@@ -113,5 +122,8 @@
     if (-not $env:SENTINEL_NO_LAUNCH) {
         Start-Process -FilePath (Join-Path $Dest 'SENTINEL.exe') -ArgumentList "--samples `"$Tests`""
         Start-Process -FilePath 'explorer.exe' -ArgumentList "`"$Tests`""
+        # The guided extension setup, in its own window.
+        Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') `
+            -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$Dest\install-extension.ps1`""
     }
 }

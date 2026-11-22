@@ -24,9 +24,9 @@ mkdir -p "$out/poisoner" "$out/extension"
 rsync -a --exclude .venv --exclude __pycache__ --exclude .pytest_cache --exclude .ruff_cache --exclude tests \
   "$repo/poisoner/" "$out/poisoner/"
 rsync -a "$repo/extension/" "$out/extension/"
-cp "$repo/windows/uninstall.ps1" "$out/"
+cp "$repo/windows/uninstall.ps1" "$repo/windows/install-extension.ps1" "$out/"
 
 rm -f "$repo/dist/sentinel-windows.zip"
 (cd "$out" && bsdtar -a -cf "$repo/dist/sentinel-windows.zip" .)
-cp "$repo/windows/install.ps1" "$repo/dist/install.ps1"
-ls -la "$repo/dist/sentinel-windows.zip" "$repo/dist/install.ps1"
+cp "$repo/windows/install.ps1" "$repo/windows/install-extension.ps1" "$repo/dist/"
+ls -la "$repo/dist/sentinel-windows.zip" "$repo/dist/install.ps1" "$repo/dist/install-extension.ps1"
