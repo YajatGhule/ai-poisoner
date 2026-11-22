@@ -19,7 +19,11 @@ jobs:
         with: { version: 12.21.0 }
       - uses: actions/setup-go@v5
         with: { go-version: "1.22" }
-      - run: sudo apt-get update -q && sudo apt-get install -y -q libarchive-tools imagemagick rsync
+      # The runner's Microsoft package repository can be broken (403); it isn't needed here.
+      - run: |
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
+          sudo apt-get update -q
+          sudo apt-get install -y -q libarchive-tools imagemagick rsync
       - run: pnpm install --frozen-lockfile && pnpm build
       - run: tools/build-windows.sh
       - uses: actions/upload-artifact@v4
