@@ -6,10 +6,12 @@ run with ONNX Runtime on the CPU. Audio and video are decoded with ffmpeg.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import urllib.request
@@ -190,10 +192,15 @@ class Detector:
         ext = Path(name).suffix.lower()
         if ext in IMAGE_EXT or (ext not in AUDIO_EXT and _looks_like_image(data)):
             return {"name": name, **self.check_image(data)}
-        with tempfile.NamedTemporaryFile(suffix=ext or ".bin") as f:
-            f.write(data)
-            f.flush()
-            return {"name": name, **self.check_audio(f.name)}
+        # Closed before ffmpeg reads it: Windows does not let another process open a file that is still open here.
+        fd, tmp = tempfile.mkstemp(suffix=ext or ".bin")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            return {"name": name, **self.check_audio(tmp)}
+        finally:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
 
 
 def _usable(w: np.ndarray) -> bool:
@@ -256,6 +263,7 @@ def decode_audio(path: str) -> np.ndarray:
     r = subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-i", path, "-t", str(MAX_AUDIO_SEC), "-vn",
                         "-ac", "1", "-ar", str(RATE), "-f", "f32le", "-"], capture_output=True, timeout=300, **flags)
     if r.returncode != 0 or not r.stdout:
+        print(f"ffmpeg failed on {path}: {r.stderr.decode(errors='replace')[-500:]}", file=sys.stderr, flush=True)
         raise CheckError("This file has no sound track that could be read.")
     return np.frombuffer(r.stdout, dtype=np.float32).copy()
 
