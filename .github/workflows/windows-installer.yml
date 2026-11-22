@@ -32,6 +32,7 @@ jobs:
           path: |
             dist/sentinel-windows.zip
             dist/install.ps1
+            dist/install-extension.ps1
 
   install-and-test:
     needs: build
@@ -46,6 +47,14 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { name: windows-release, path: assets }
 
+      - name: PowerShell scripts parse
+        run: |
+          foreach ($f in Get-ChildItem assets\*.ps1) {
+            $errs = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errs)
+            if ($errs) { $errs | Format-List; throw "parse errors in $($f.Name)" } else { "ok  $($f.Name)" }
+          }
+
       - name: Install (same as irm | iex; the test files come from the published release)
         run: |
           $env:SENTINEL_LOCAL_ASSETS = (Resolve-Path assets).Path
@@ -57,6 +66,8 @@ jobs:
           $desk = [Environment]::GetFolderPath('Desktop')
           $prog = [Environment]::GetFolderPath('Programs')
           $need = "$dest\SENTINEL.exe", "$dest\uv\uv.exe", "$dest\extension\manifest.json", "$dest\uninstall.ps1",
+                  "$dest\install-extension.ps1", "$prog\Install SENTINEL Chrome extension.lnk",
+                  "$desk\SENTINEL Test Files\Install the Chrome extension.lnk",
                   "$desk\SENTINEL.lnk", "$prog\SENTINEL.lnk", "$prog\Uninstall SENTINEL.lnk",
                   "$desk\SENTINEL Test Files\HOW TO TEST.txt", "$desk\SENTINEL Test Files\1 Voices\AI\AI voice (Kokoro).wav"
           foreach ($f in $need) { if (-not (Test-Path -LiteralPath $f)) { throw "missing: $f" } else { "ok  $f" } }

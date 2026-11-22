@@ -17,7 +17,11 @@ It installs SENTINEL to `%LOCALAPPDATA%\SENTINEL` (no admin rights), adds **SENT
 Start menu, and puts a **SENTINEL Test Files** folder on the Desktop: AI and real voices, images and songs, plus
 `HOW TO TEST.txt` with the expected result for each. It needs about 3 GB and an internet connection while
 installing (Python, PyTorch and the models); after that it works offline. Uninstall from the Start menu.
-The Chrome extension folder is `%LOCALAPPDATA%\SENTINEL\extension` (Load unpacked; the installer copies the path).
+At the end it opens a guided **extension setup** (also in the Start menu and the test folder): it opens the
+extensions page, copies the folder path and confirms when the browser has loaded SENTINEL. Browsers only accept
+extensions from outside their store in developer mode, so the "Load unpacked" click itself is yours.
+Extension on its own (no app): `irm https://github.com/YajatGhule/ai-poisoner/releases/download/v0.5.0-alpha/install-extension.ps1 | iex`.
+On Linux: `tools/install-extension.sh`.
 
 Built with `tools/build-windows.sh` (Go launcher `windows/launcher`, installer `windows/install.ps1`).
 
