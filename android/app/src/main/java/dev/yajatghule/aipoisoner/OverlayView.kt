@@ -42,8 +42,16 @@ class OverlayView(context: Context) : View(context) {
         strokeWidth = 2.5f * dp
     }
 
+    /** Called whenever the badges change (also with an empty list), so the floating chip can follow. */
+    var onBadges: ((List<Badge>) -> Unit)? = null
+
+    /** Minimised: the per-image boxes are not drawn; the chip still shows the counts. */
+    var minimised = false
+        set(v) { field = v; invalidate() }
+
     fun show(next: List<Badge>) {
         badges = next
+        onBadges?.invoke(next)
         invalidate()
     }
 
@@ -52,7 +60,7 @@ class OverlayView(context: Context) : View(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
-        if (badges.isEmpty()) return
+        if (badges.isEmpty() || minimised) return
         // Convert screen coordinates to this window's coordinates.
         getLocationOnScreen(loc)
         canvas.save()
