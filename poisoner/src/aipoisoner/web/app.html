@@ -43,6 +43,7 @@
   .panel{border:1px solid var(--faint);border-radius:10px;padding:14px}
   .panel .k{margin-bottom:6px}
   svg.tl{width:100%;height:46px;display:block;margin-top:10px}
+  svg.tl.chart{height:auto;max-height:260px;overflow:visible}
   .busy{display:flex;align-items:center;gap:12px;color:var(--mute)}
   .spin{width:18px;height:18px;border:2px solid var(--faint);border-top-color:var(--gold);border-radius:50%;animation:s 1s linear infinite}
   @keyframes s{to{transform:rotate(360deg)}}
@@ -388,12 +389,37 @@ function show(j) {
   $('out').hidden = false;
 }
 
+// AI score over time: a proper chart with a 0-100% axis, gridlines, the AI and Human cutoffs, a time axis and hover values.
 function timeline(tl, total, live = false) {
-  if (!tl.length) return live ? '<svg class="tl" viewBox="0 0 600 40"></svg>' : '';
-  const W = 600, H = 40, span = Math.max(total, live ? 30 : 4), w = Math.max(2, W * 4 / span);
-  const bars = tl.map(([t, p]) => `<rect x="${(t / span * W).toFixed(1)}" y="${(H - 6 - p * (H - 10)).toFixed(1)}" width="${w.toFixed(1)}" height="${(6 + p * (H - 10)).toFixed(1)}" fill="${p >= .8 ? '#e0604f' : p >= .4 ? '#c9a45c' : '#6fbf8a'}" opacity=".75"/>`).join('');
-  return `<svg class="tl" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="AI score over time">${bars}</svg>
-    <div class="scale"><span>0:00</span><span>AI score over time</span><span>${clock(span)}</span></div>`;
+  const W = 640, H = 210, L = 44, R = 14, T = 12, B = 34, pw = W - L - R, ph = H - T - B;
+  const span = Math.max(total, live ? 30 : 8);
+  const X = t => L + Math.min(1, t / span) * pw, Y = p => T + (1 - p) * ph;
+  const col = p => p >= .8 ? '#e0604f' : p >= .4 ? '#c9a45c' : '#6fbf8a';
+  let g = '';
+  for (const v of [0, .25, .5, .75, 1]) {
+    g += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#2e2a27" stroke-width="1"/>` +
+         `<text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" fill="#8d867c" font-size="11">${Math.round(v * 100)}%</text>`;
+  }
+  const step = span > 600 ? 120 : span > 240 ? 60 : span > 90 ? 20 : span > 40 ? 10 : 5;
+  for (let t = 0; t <= span + 0.01; t += step) {
+    g += `<line x1="${X(t)}" x2="${X(t)}" y1="${T}" y2="${T + ph}" stroke="#2e2a27" stroke-width="1" stroke-dasharray="2 4"/>` +
+         `<text x="${X(t)}" y="${H - B + 16}" text-anchor="middle" fill="#8d867c" font-size="11">${clock(t)}</text>`;
+  }
+  // cutoffs: at or above 80% a window counts as AI, below 40% as human
+  g += `<line x1="${L}" x2="${W - R}" y1="${Y(.8)}" y2="${Y(.8)}" stroke="#e0604f" stroke-width="1.2" stroke-dasharray="6 4" opacity=".8"/>` +
+       `<text x="${W - R - 2}" y="${Y(.8) - 4}" text-anchor="end" fill="#e0604f" font-size="10">AI at 80% and above</text>` +
+       `<line x1="${L}" x2="${W - R}" y1="${Y(.4)}" y2="${Y(.4)}" stroke="#6fbf8a" stroke-width="1.2" stroke-dasharray="6 4" opacity=".8"/>` +
+       `<text x="${W - R - 2}" y="${Y(.4) + 12}" text-anchor="end" fill="#6fbf8a" font-size="10">Human below 40%</text>`;
+  let plot = '';
+  if (tl.length) {
+    const pts = tl.map(([t, p]) => [X(t + 2), Y(p), p, t]);   // each window covers 4 s: plot it at its middle
+    const area = `M${pts[0][0]},${Y(0)} ` + pts.map(([x, y]) => `L${x.toFixed(1)},${y.toFixed(1)}`).join(' ') + ` L${pts[pts.length - 1][0]},${Y(0)} Z`;
+    plot = `<path d="${area}" fill="#c9a45c" opacity=".12"/>` +
+      `<polyline points="${pts.map(([x, y]) => x.toFixed(1) + ',' + y.toFixed(1)).join(' ')}" fill="none" stroke="#ede7db" stroke-width="1.6" stroke-linejoin="round" opacity=".85"/>` +
+      pts.map(([x, y, p, t]) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.4" fill="${col(p)}" stroke="#0e0d0c" stroke-width="1"><title>${clock(t)}–${clock(t + 4)}: ${Math.round(p * 100)}% AI</title></circle>`).join('');
+  }
+  return `<svg class="tl chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Chance that each 4-second window is an AI voice, from 0 to 100 percent, over time">${g}${plot}
+    <text x="12" y="${T + ph / 2}" transform="rotate(-90 12 ${T + ph / 2})" text-anchor="middle" fill="#8d867c" font-size="11">chance it is AI</text></svg>`;
 }
 function clock(s) { s = Math.floor(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
 
