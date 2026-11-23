@@ -171,7 +171,9 @@ async function poll() {
   if (j.status === 'queued') { $('wtitle').textContent = 'Waiting…'; $('wtext').textContent = j.queue_position ? `${j.queue_position} image(s) ahead of this one.` : 'Loading the model.'; }
   if (j.status === 'running') {
     $('wtitle').textContent = 'Working…'; $('fill').style.width = (j.progress * 100) + '%';
-    $('wtext').textContent = j.step ? `Step ${j.step} of ${j.steps}` + (j.eta_seconds != null ? ` · about ${fmt(j.eta_seconds)} left` : '') : 'Loading the model.';
+    $('wtext').textContent = !j.step ? 'Loading the model.' : j.step >= j.steps
+      ? 'Almost done: measuring the result and building the preview (about 10 seconds)…'
+      : `Step ${j.step} of ${j.steps}` + (j.eta_seconds != null ? ` · about ${fmt(j.eta_seconds)} left` : '');
   }
   if (j.status === 'done') return show(j);
   if (j.status === 'error') return reset(j.error);
