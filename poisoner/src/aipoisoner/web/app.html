@@ -45,6 +45,10 @@
   svg.tl{width:100%;height:46px;display:block;margin-top:10px}
   svg.tl.chart{height:auto;max-height:260px;overflow:visible;cursor:zoom-in}
   .chartwrap{position:relative}
+  .vt{display:inline-flex;border:1px solid var(--faint);border-radius:6px;overflow:hidden;margin:0 0 4px}
+  .chartwrap .vt{position:absolute;top:-6px;right:84px;z-index:1;background:var(--bg)}
+  .vt button{background:none;border:0;color:var(--mute);font:11px ui-monospace,monospace;padding:3px 9px;cursor:pointer}
+  .vt button[aria-pressed=true]{background:var(--faint);color:var(--ink)}
   .expand{position:absolute;top:-6px;right:0;background:var(--bg);border:1px solid var(--faint);color:var(--mute);border-radius:6px;font:11px ui-monospace,monospace;padding:3px 8px;cursor:pointer;z-index:1}
   .expand:hover{color:var(--ink);border-color:var(--gold)}
   #zoom{position:fixed;inset:0;background:rgba(8,7,6,.92);z-index:50;display:flex;align-items:center;justify-content:center;padding:3vh 3vw}
@@ -400,8 +404,23 @@ function show(j) {
   $('out').hidden = false;
 }
 
+// The earlier, compact view: one bar per window, no axes.
+function barsView(tl, total, live) {
+  if (!tl.length) return live ? '<svg class="tl" viewBox="0 0 600 40"></svg>' : '';
+  const W = 600, H = 40, span = Math.max(total, live ? 30 : 4), w = Math.max(2, W * 4 / span);
+  const bars = tl.map(([t, p]) => `<rect x="${(t / span * W).toFixed(1)}" y="${(H - 6 - p * (H - 10)).toFixed(1)}" width="${w.toFixed(1)}" height="${(6 + p * (H - 10)).toFixed(1)}" fill="${p >= .8 ? '#e0604f' : p >= .4 ? '#c9a45c' : '#6fbf8a'}" opacity=".75"/>`).join('');
+  return `<svg class="tl" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="AI score over time">${bars}</svg>
+    <div class="scale"><span>0:00</span><span>AI score over time</span><span>${clock(span)}</span></div>`;
+}
+function viewToggle() {
+  const v = chartView();
+  return `<span class="vt" role="group" aria-label="Graph style"><button type="button" data-view="chart" aria-pressed="${v === 'chart'}">Graph</button><button type="button" data-view="bars" aria-pressed="${v === 'bars'}">Bars</button></span>`;
+}
+function chartView() { try { return localStorage.getItem('sentinel-graph') === 'bars' ? 'bars' : 'chart'; } catch { return 'chart'; } }
+
 // AI score over time: a proper chart with a 0-100% axis, gridlines, the AI and Human cutoffs, a time axis and hover values.
 function timeline(tl, total, live = false) {
+  if (chartView() === 'bars') return viewToggle() + barsView(tl, total, live);
   const W = 640, H = 210, L = 44, R = 14, T = 12, B = 34, pw = W - L - R, ph = H - T - B;
   const span = Math.max(total, live ? 30 : 8);
   const X = t => L + Math.min(1, t / span) * pw, Y = p => T + (1 - p) * ph;
@@ -429,7 +448,7 @@ function timeline(tl, total, live = false) {
       `<polyline points="${pts.map(([x, y]) => x.toFixed(1) + ',' + y.toFixed(1)).join(' ')}" fill="none" stroke="#ede7db" stroke-width="1.6" stroke-linejoin="round" opacity=".85"/>` +
       pts.map(([x, y, p, t]) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.4" fill="${col(p)}" stroke="#0e0d0c" stroke-width="1"><title>${clock(t)}–${clock(t + 4)}: ${Math.round(p * 100)}% AI</title></circle>`).join('');
   }
-  return `<div class="chartwrap${live ? ' live' : ''}"><button type="button" class="expand" title="Expand the graph (Esc to close)" aria-label="Expand the graph">⤢ Expand</button>
+  return `<div class="chartwrap${live ? ' live' : ''}">${viewToggle()}<button type="button" class="expand" title="Expand the graph (Esc to close)" aria-label="Expand the graph">⤢ Expand</button>
     <svg class="tl chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Chance that each 4-second window is an AI voice, from 0 to 100 percent, over time">${g}${plot}
     <text x="12" y="${T + ph / 2}" transform="rotate(-90 12 ${T + ph / 2})" text-anchor="middle" fill="#8d867c" font-size="11">chance it is AI</text></svg></div>`;
 }
@@ -604,12 +623,21 @@ let zoomLive = false;
 function openZoom(wrap) {
   zoomLive = wrap.classList.contains('live');
   const svg = wrap.querySelector('svg').outerHTML;
+  const bars = !wrap.querySelector('.chart');
   $('zbody').innerHTML = `<div class="chartwrap">${svg}</div>`;
+  if (bars) $('zbody').innerHTML += '<p class="sub">Switch to the Graph view for the 0-100% axis.</p>';
   $('ztitle').textContent = zoomLive ? 'AI score over time · live' : 'AI score over time';
   $('zoom').hidden = false; $('zclose').focus();
 }
 function closeZoom() { $('zoom').hidden = true; zoomLive = false; $('zbody').innerHTML = ''; }
 document.addEventListener('click', e => {
+  const vb = e.target.closest('[data-view]');
+  if (vb) {
+    try { localStorage.setItem('sentinel-graph', vb.dataset.view); } catch { /* private window */ }
+    if (last && last.voice) show(last);
+    if (live) drawLive();
+    return;
+  }
   const w = e.target.closest('.chartwrap');
   if (w && !e.target.closest('#zoom')) openZoom(w);
   else if (e.target === $('zoom') || e.target.closest('#zclose')) closeZoom();
