@@ -58,6 +58,16 @@
   .seg button[aria-pressed=true]{background:var(--faint);color:var(--ink)}
   .meter.music{background:linear-gradient(90deg,var(--green) 0 30%,var(--amber) 30% 80%,var(--red) 80%)}
   .row2.one{grid-template-columns:1fr}
+  .media img{max-width:100%;max-height:420px;border-radius:8px;display:block;margin-top:8px}
+  .media video{max-height:420px;background:#000;border-radius:8px;margin-top:8px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.chips .verdict{font-weight:500;font-size:12px}
+  .lvl{display:inline-block;width:160px;height:8px;border-radius:4px;background:var(--faint);overflow:hidden}
+  .lvl i{display:block;height:100%;width:0;background:var(--green);transition:width .2s}
+  select{font:inherit;background:var(--bg2);color:var(--ink);border:1px solid var(--faint);border-radius:8px;padding:8px}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .go{background:var(--gold);color:#17130a;font-weight:600;border:0;border-radius:8px;padding:10px 18px;cursor:pointer;font:inherit}
+  .go:disabled,.ghost:disabled{opacity:.4;cursor:not-allowed}
+  .ghost{background:none;border:1px solid var(--faint);color:var(--ink);border-radius:8px;padding:10px 18px;cursor:pointer;font:inherit}
   [hidden]{display:none!important}
   @media (max-width:640px){.result,.row2{grid-template-columns:1fr}h1{font-size:38px}}
 </style></head>
@@ -70,6 +80,7 @@
 
   <div class="tabs" role="tablist">
     <button role="tab" id="t-check" aria-selected="true" aria-controls="p-check">Check a file</button>
+    <button role="tab" id="t-live" aria-selected="false" aria-controls="p-live">Listen live</button>
     <button role="tab" id="t-protect" aria-selected="false" aria-controls="p-protect">Protect an image</button>
   </div>
 
@@ -79,6 +90,7 @@
         <span><b>Choose a file</b> or drop one here<br><small>A picture, a voice recording, a song, or a video</small></span></label>
       <div class="samples" id="samples" hidden></div>
     </div>
+    <div class="card media" id="media" hidden></div>
     <div class="card" id="busy" hidden><div class="busy"><span class="spin"></span><span id="busytext">Checking…</span></div></div>
     <div class="card" id="out" hidden></div>
     <div class="treat" id="treat" hidden><span>This recording is</span>
@@ -92,6 +104,34 @@
     </details>
   </section>
 
+  <section id="p-live" role="tabpanel" aria-labelledby="t-live" hidden>
+    <div class="card">
+      <h2>Listen live</h2>
+      <p class="sub" style="max-width:70ch">SENTINEL listens through the microphone and checks every 4 seconds for an AI voice and every
+        5 seconds for AI music, as it goes. Play a voice note, a video or a song near the laptop, or speak. Nothing is recorded to disk
+        or sent anywhere; when you stop, the whole recording is checked once more and you can play it back.</p>
+      <div class="row" style="margin-top:14px">
+        <button class="go" id="lstart" type="button" style="margin:0">● Start microphone</button>
+        <button class="ghost" id="lstop" type="button" disabled>■ Stop</button>
+        <span class="sub" id="lstatus"></span>
+      </div>
+      <div id="simrow" class="row" style="margin-top:16px" hidden>
+        <span class="sub">No microphone, or a quiet demo? Feed a demo recording into the same live detector:</span>
+        <select id="simfile" aria-label="Demo recording"></select>
+        <select id="simspeed" aria-label="Speed"><option value="1">1× (real time)</option><option value="4" selected>4× faster</option></select>
+        <label class="sub"><input type="checkbox" id="simaloud"> also play it out loud (1× only)</label>
+        <button class="ghost" id="lsim" type="button">▶ Simulate</button>
+      </div>
+      <p class="err" id="lerr" role="alert" hidden></p>
+    </div>
+    <div class="card" id="lpanel" hidden>
+      <div class="row"><span class="k">Time</span><b id="ltime" style="font-variant-numeric:tabular-nums">0:00</b>
+        <span class="k" style="margin-left:12px">Level</span><span class="lvl"><i id="llevel"></i></span></div>
+      <div class="row2"><div class="panel" id="lvoice"></div><div class="panel" id="lmusic"></div></div>
+    </div>
+    <div class="card" id="lfinal" hidden></div>
+  </section>
+
   <section id="p-protect" role="tabpanel" aria-labelledby="t-protect" hidden>
     <iframe id="pframe" title="Protect an image" data-src="/protect"></iframe>
   </section>
@@ -100,11 +140,13 @@
 const $ = id => document.getElementById(id);
 const pct = p => Math.round(p * 100) + '%';
 const LABEL = { ai: 'AI', unsure: 'Unsure', human: 'Human', null: 'Not enough' };
-let busy = false, objUrl = null, last = null, treat = 'both';
+const RATE = 16000;
+let busy = false, objUrl = null, last = null, treat = 'both', sampleList = [];
 
-for (const t of ['check', 'protect']) {
+const TABS = ['check', 'live', 'protect'];
+for (const t of TABS) {
   $('t-' + t).onclick = () => {
-    for (const u of ['check', 'protect']) {
+    for (const u of TABS) {
       $('t-' + u).setAttribute('aria-selected', u === t);
       $('p-' + u).hidden = u !== t;
     }
@@ -124,26 +166,51 @@ async function health() {
   } catch { $('dot').className = 'dot bad'; $('health').textContent = 'The SENTINEL backend is not answering.'; }
 }
 
+const isAudio = n => /\.(wav|mp3|m4a|aac|ogg|opus|flac)$/i.test(n);
+const isVideo = n => /\.(mp4|mov|mkv|webm|3gp|avi|m4v)$/i.test(n);
+const kindOf = n => isVideo(n) ? 'video' : isAudio(n) ? 'audio' : 'image';
+const ICON = { image: '▣', audio: '♪', video: '▶' };
+
 async function samples() {
-  const list = await (await fetch('/api/samples')).json().catch(() => []);
-  if (!list.length) return;
+  sampleList = await (await fetch('/api/samples')).json().catch(() => []);
+  if (!sampleList.length) return;
   const box = $('samples');
   const groups = {};
-  for (const s of list) (groups[s.name.split('/').slice(0, -1).join(' / ') || 'samples'] ??= []).push(s);
+  for (const s of sampleList) (groups[s.name.split('/').slice(0, -1).join(' / ') || 'samples'] ??= []).push(s);
   box.innerHTML = '';
   for (const [g, items] of Object.entries(groups)) {
     const h = document.createElement('h3'); h.textContent = 'Demo files · ' + g; box.append(h);
-    for (const s of items.slice(0, 24)) {
+    for (const s of items.slice(0, 40)) {
       const b = document.createElement('button');
-      b.type = 'button'; b.textContent = s.name.split('/').pop();
+      const base = s.name.split('/').pop();
+      b.type = 'button'; b.textContent = ICON[kindOf(base)] + ' ' + base; b.title = 'Play and check ' + s.name;
       b.onclick = () => {
-        setTreat(/music|song/i.test(s.name) ? 'song' : /voice|speech/i.test(s.name) ? 'speech' : 'both');
-        run(fetch(`/api/samples/${s.id}/check`, { method: 'POST' }), s.name.split('/').pop(), `/api/samples/${s.id}/file`);
+        setTreat(/music|song|suno|udio/i.test(s.name) ? 'song' : /voice|speech/i.test(s.name) ? 'speech' : 'both');
+        showMedia(base, `/api/samples/${s.id}/file`);
+        run(fetch(`/api/samples/${s.id}/check`, { method: 'POST' }), base);
       };
       box.append(b);
     }
   }
   box.hidden = false;
+  // demo recordings for the simulated live listening
+  const sel = $('simfile');
+  sel.innerHTML = '';
+  for (const s of sampleList.filter(s => isAudio(s.name) || (isVideo(s.name) && /speech|voice|song|suno|udio/i.test(s.name)))) {
+    const o = document.createElement('option'); o.value = s.id; o.textContent = s.name; sel.append(o);
+  }
+  const pref = [...sel.options].find(o => /AI part|long_speech/i.test(o.textContent));
+  if (pref) sel.value = pref.value;
+  $('simrow').hidden = !sel.options.length;
+}
+
+function showMedia(name, src, type = '') {
+  const k = /^video/.test(type) ? 'video' : /^audio/.test(type) ? 'audio' : /^image/.test(type) ? 'image' : kindOf(name);
+  const el = k === 'image' ? `<img src="${src}" alt="${esc(name)}">` :
+    k === 'video' ? `<video controls preload="metadata" src="${src}"></video>` : `<audio controls preload="metadata" src="${src}"></audio>`;
+  $('media').innerHTML = `<div class="k">${esc(name)}</div>${el}`;
+  $('media').className = 'card media ' + k;
+  $('media').hidden = false;
 }
 
 function pick(f) {
@@ -152,19 +219,19 @@ function pick(f) {
   if (objUrl) URL.revokeObjectURL(objUrl);
   objUrl = URL.createObjectURL(f);
   setTreat('both');
-  run(fetch('/api/check', { method: 'POST', body: fd }), f.name, objUrl, f.type);
+  showMedia(f.name, objUrl, f.type);
+  run(fetch('/api/check', { method: 'POST', body: fd }), f.name);
 }
 
-async function run(req, name, src, type = '') {
+async function run(req, name) {
   if (busy) return;
   busy = true; $('err').hidden = true; $('out').hidden = true; $('treat').hidden = true; $('busy').hidden = false;
-  const audioish = /\.(wav|mp3|m4a|aac|ogg|opus|flac|mp4|mov|mkv|webm|3gp)$/i.test(name) || /^(audio|video)/.test(type);
-  $('busytext').textContent = `Checking ${name}…` + (audioish ? ' Long recordings take a few seconds per minute.' : '');
+  $('busytext').textContent = `Checking ${name}…` + (kindOf(name) !== 'image' ? ' Long recordings take a few seconds per minute; you can play it meanwhile.' : '');
   try {
     const r = await req;
     const j = await r.json();
     if (!r.ok) throw new Error(j.detail || 'The check failed.');
-    show(j, src, type);
+    show(j);
   } catch (e) { $('err').textContent = String(e.message || e); $('err').hidden = false; }
   finally { busy = false; $('busy').hidden = true; }
 }
@@ -176,47 +243,60 @@ function setTreat(v) {
   treat = v;
   for (const b of document.querySelectorAll('#treat button')) b.setAttribute('aria-pressed', b.dataset.v === v);
 }
-for (const b of document.querySelectorAll('#treat button')) b.onclick = () => { setTreat(b.dataset.v); if (last) show(...last); };
+for (const b of document.querySelectorAll('#treat button')) b.onclick = () => { setTreat(b.dataset.v); if (last) show(last); };
 
-function show(j, src, type) {
-  last = [j, src, type];
-  const out = $('out');
-  $('treat').hidden = j.kind === 'image';
+function voicePanel(v, seconds, hidden) {
+  const stretches = v.stretches.length ? 'Sounds AI at ' + v.stretches.map(s => s[2]).join(', ') : 'No stretch sounds AI';
+  return `<div class="panel"${hidden ? ' hidden' : ''}><div class="k">Voice (speech)</div>${badge(v.verdict)}
+    <div class="head" style="font-size:24px">${esc(v.headline)}</div>
+    <p class="sub">${v.windows ? `${pct(v.ai_share)} of ${v.windows} windows sound AI · ${stretches}` : 'No clear speech found'}</p>
+    ${timeline(v.timeline, seconds)}</div>`;
+}
+function musicPanel(m, hidden) {
+  return `<div class="panel"${hidden ? ' hidden' : ''}><div class="k">Music</div>${m ? badge(m.verdict) : badge(null)}
+    <div class="head" style="font-size:24px">${m ? esc(m.headline.replace('Music: ', '')) : 'No music found'}</div>
+    ${m ? `<div class="meter music"><b style="left:${m.score * 100}%"></b></div><div class="scale"><span>Human</span><span>Unsure</span><span>AI</span></div>
+    <p class="sub" style="margin-top:8px">Mean of ${m.windows} five-second windows.</p>` : ''}</div>`;
+}
+function framesPanel(f) {
+  if (!f) return `<div class="panel"><div class="k">Pictures in the video</div>${badge(null)}<div class="head" style="font-size:24px">No picture to check</div><p class="sub">The video is blank (for example a black screen behind a sound track).</p></div>`;
+  const chips = f.frames.map(x => `<span class="verdict v-${x.verdict}" title="${pct(x.score)} AI"><i></i>${clock(x.t)} · ${pct(x.score)}</span>`).join(' ');
+  return `<div class="panel"><div class="k">Pictures in the video (${f.frames.length} frames)</div>${badge(f.verdict)}
+    <div class="head" style="font-size:24px">${esc(f.headline)}</div><div class="chips">${chips}</div></div>`;
+}
+
+function render(j) {
   if (j.kind === 'image') {
-    out.innerHTML = `<div class="result"><img src="${src}" alt="${esc(j.name)}">
-      <div><div class="k">${esc(j.name)} · ${j.size.join(' × ')} px</div>
+    return `<div><div class="k">${esc(j.name)} · ${j.size.join(' × ')} px</div>
         <div style="margin-top:10px">${badge(j.verdict)}</div>
         <div class="head">${esc(j.headline)}</div>
         <div class="meter"><b style="left:${j.score * 100}%"></b></div>
         <div class="scale"><span>Human</span><span>Unsure</span><span>AI</span></div>
-        <p class="sub" style="margin-top:10px">${j.why ? 'Decided by metadata: ' + esc(j.why) + '. ' : ''}${j.c2pa ? 'Carries C2PA Content Credentials. ' : ''}Model score ${pct(j.score)} AI.</p>
-      </div></div>`;
-  } else {
-    const v = j.voice, m = j.music, video = /^video/.test(type) || /\.(mp4|mov|mkv|webm)$/i.test(j.name);
-    const player = video ? `<video controls src="${src}"></video>` : `<audio controls src="${src}"></audio>`;
-    const stretches = v.stretches.length ? 'Sounds AI at ' + v.stretches.map(s => s[2]).join(', ') : 'No stretch sounds AI';
-    out.innerHTML = `<div class="result audio"><div>
-        <div class="k">${esc(j.name)} · ${clock(j.seconds)}</div>${player}
-        <div class="row2${treat === 'both' ? '' : ' one'}">
-          <div class="panel"${treat === 'song' ? ' hidden' : ''}><div class="k">Voice (speech)</div>${badge(v.verdict)}
-            <div class="head" style="font-size:24px">${esc(v.headline)}</div>
-            <p class="sub">${v.windows ? `${pct(v.ai_share)} of ${v.windows} windows sound AI · ${stretches}` : 'No clear speech found'}</p>
-            ${timeline(v.timeline, j.seconds)}</div>
-          <div class="panel"${treat === 'speech' ? ' hidden' : ''}><div class="k">Music</div>${m ? badge(m.verdict) : badge(null)}
-            <div class="head" style="font-size:24px">${m ? esc(m.headline.replace('Music: ', '')) : 'No music found'}</div>
-            ${m ? `<div class="meter music"><b style="left:${m.score * 100}%"></b></div><div class="scale"><span>Human</span><span>Unsure</span><span>AI</span></div>
-            <p class="sub" style="margin-top:8px">Mean of ${m.windows} five-second windows.</p>` : ''}</div>
-        </div></div></div>`;
+        <p class="sub" style="margin-top:10px">${j.why ? 'Decided by metadata: ' + esc(j.why) + '. ' : ''}${j.c2pa ? 'Carries C2PA Content Credentials. ' : ''}Model score ${pct(j.score)} AI.</p></div>`;
   }
-  out.hidden = false;
+  if (j.kind === 'video') {
+    const parts = [framesPanel(j.frames)];
+    if (j.has_sound) parts.push(voicePanel(j.voice, j.seconds, treat === 'song'), musicPanel(j.music, treat === 'speech'));
+    else parts.push('<div class="panel"><div class="k">Sound</div>' + badge(null) + '<div class="head" style="font-size:24px">No sound track</div><p class="sub">This video is silent, so only its pictures were checked.</p></div>');
+    return `<div class="k">${esc(j.name)} · ${clock(j.seconds)}</div><div class="row2">${parts.join('')}</div>`;
+  }
+  return `<div class="k">${esc(j.name || 'Recording')} · ${clock(j.seconds)}</div>
+    <div class="row2${treat === 'both' ? '' : ' one'}">${voicePanel(j.voice, j.seconds, treat === 'song')}${musicPanel(j.music, treat === 'speech')}</div>`;
 }
 
-function timeline(tl, total) {
-  if (!tl.length) return '';
-  const W = 600, H = 40, w = Math.max(2, W * 4 / Math.max(total, 4));
-  const bars = tl.map(([t, p]) => `<rect x="${(t / total * W).toFixed(1)}" y="${(H - 6 - p * (H - 10)).toFixed(1)}" width="${w.toFixed(1)}" height="${(6 + p * (H - 10)).toFixed(1)}" fill="${p >= .8 ? '#e0604f' : p >= .4 ? '#c9a45c' : '#6fbf8a'}" opacity=".75"/>`).join('');
+function show(j) {
+  last = j;
+  $('treat').hidden = j.kind === 'image' || (j.kind === 'video' && !j.has_sound);
+  $('out').innerHTML = render(j);
+  $('out').hidden = false;
+}
+
+function timeline(tl, total, live = false) {
+  if (!tl.length) return live ? '<svg class="tl" viewBox="0 0 600 40"></svg>' : '';
+  const W = 600, H = 40, span = Math.max(total, live ? 30 : 4), w = Math.max(2, W * 4 / span);
+  const bars = tl.map(([t, p]) => `<rect x="${(t / span * W).toFixed(1)}" y="${(H - 6 - p * (H - 10)).toFixed(1)}" width="${w.toFixed(1)}" height="${(6 + p * (H - 10)).toFixed(1)}" fill="${p >= .8 ? '#e0604f' : p >= .4 ? '#c9a45c' : '#6fbf8a'}" opacity=".75"/>`).join('');
   return `<svg class="tl" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="AI score over time">${bars}</svg>
-    <div class="scale"><span>0:00</span><span>AI score over time</span><span>${clock(total)}</span></div>`;
+    <div class="scale"><span>0:00</span><span>AI score over time</span><span>${clock(span)}</span></div>`;
 }
 function clock(s) { s = Math.floor(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
 
@@ -225,6 +305,168 @@ const drop = $('drop');
 drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
 drop.ondragleave = () => drop.classList.remove('over');
 drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); pick(e.dataTransfer.files[0]); };
+
+// ===================== Live listening (microphone, or a demo recording fed in as if it were live) =====================
+const VOICE_WIN = 4 * RATE, VOICE_HOP = 2 * RATE, MUSIC_WIN = 5 * RATE;
+let live = null;
+
+class Live {
+  constructor(source) {
+    this.source = source; this.buf = new Float32Array(RATE * 60); this.n = 0;
+    this.nextVoice = VOICE_WIN; this.nextMusic = MUSIC_WIN;
+    this.voice = []; this.music = []; this.skipped = 0; this.queue = Promise.resolve(); this.level = 0;
+  }
+  push(x) {
+    if (this.n + x.length > this.buf.length) {
+      const b = new Float32Array(Math.max(this.buf.length * 2, this.n + x.length)); b.set(this.buf.subarray(0, this.n)); this.buf = b;
+    }
+    this.buf.set(x, this.n); this.n += x.length;
+    let s = 0; for (let i = 0; i < x.length; i++) s += x[i] * x[i];
+    this.level = Math.sqrt(s / Math.max(1, x.length));
+    while (this.n >= this.nextVoice) { const end = this.nextVoice; this.send('voice', end - VOICE_WIN, end); this.nextVoice += VOICE_HOP; }
+    while (this.n >= this.nextMusic) { const end = this.nextMusic; this.send('music', end - MUSIC_WIN, end); this.nextMusic += MUSIC_WIN; }
+    drawLive();
+  }
+  send(kind, a, b) {
+    const body = this.buf.slice(a, b).buffer;
+    this.queue = this.queue.then(async () => {
+      try {
+        const r = await (await fetch('/api/live/' + kind, { method: 'POST', body, headers: { 'Content-Type': 'application/octet-stream' } })).json();
+        if (kind === 'voice') { if (r.usable) this.voice.push([a / RATE, r.score]); else this.skipped++; }
+        else if (r.score != null) this.music.push([a / RATE, r.score]);
+      } catch { /* one lost window is fine */ }
+      drawLive();
+    });
+  }
+  recording() { return this.buf.slice(0, this.n); }
+}
+
+function voiceSummary(tl) {
+  const n = tl.length, scores = tl.map(x => x[1]);
+  const share = n ? scores.filter(p => p >= 0.8).length / n : 0;
+  const median = n ? [...scores].sort((a, b) => a - b)[Math.floor(n / 2)] : null;
+  const stretches = [];
+  for (const [t, p] of tl) {
+    if (p < 0.8) continue;
+    const last = stretches[stretches.length - 1];
+    if (last && t <= last[1] + 2) last[1] = Math.max(last[1], t + 4); else stretches.push([t, t + 4]);
+  }
+  let verdict = null;
+  if (n >= 3) verdict = share >= 0.5 || median >= 0.8 ? 'ai' : share <= 0.1 && median < 0.4 ? 'human' : 'unsure';
+  const partly = verdict === 'unsure' && stretches.reduce((a, [x, y]) => a + y - x, 0) >= 8;
+  const head = verdict === null ? (n ? `Listening… (${n} of 3 windows)` : 'Waiting for clear speech…') :
+    { ai: 'Likely an AI voice', human: 'Likely a human voice', unsure: partly ? 'Parts sound AI' : 'Unsure' }[verdict];
+  return { verdict, head, share, n, stretches };
+}
+
+function drawLive() {
+  if (!live) return;
+  const sec = live.n / RATE;
+  $('ltime').textContent = clock(sec);
+  $('llevel').style.width = Math.min(100, live.level * 400) + '%';
+  const v = voiceSummary(live.voice);
+  $('lvoice').innerHTML = `<div class="k">Voice (speech), live</div>${badge(v.verdict)}<div class="head" style="font-size:24px">${esc(v.head)}</div>
+    <p class="sub">${v.n ? `${pct(v.share)} of ${v.n} windows sound AI` : 'Speak, or play a recording near the microphone'}${v.stretches.length ? ' · AI at ' + v.stretches.map(([a, b]) => clock(a) + '–' + clock(b)).join(', ') : ''}${live.skipped ? ` · ${live.skipped} quiet windows skipped` : ''}</p>
+    ${timeline(live.voice, sec, true)}`;
+  const ms = live.music.map(x => x[1]);
+  const mp = ms.length ? ms.reduce((a, b) => a + b, 0) / ms.length : null;
+  const mv = mp == null ? null : mp >= 0.8 ? 'ai' : mp <= 0.3 ? 'human' : 'unsure';
+  $('lmusic').innerHTML = `<div class="k">Music, live</div>${badge(mv)}<div class="head" style="font-size:24px">${mp == null ? 'Waiting for 5 s of sound…' :
+    { ai: 'Likely AI-generated', human: 'Likely human-made', unsure: 'Unsure' }[mv] + ` (${pct(mp)} AI)`}</div>
+    ${mp == null ? '' : `<div class="meter music"><b style="left:${mp * 100}%"></b></div><div class="scale"><span>Human</span><span>Unsure</span><span>AI</span></div><p class="sub" style="margin-top:8px">${ms.length} five-second windows so far.</p>`}`;
+}
+
+let mic = null, sim = null;
+
+async function startMic() {
+  stopAll(false);
+  $('lerr').hidden = true;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
+    const ctx = new AudioContext({ sampleRate: RATE });
+    const src = ctx.createMediaStreamSource(stream);
+    const proc = ctx.createScriptProcessor(4096, 1, 1);
+    live = new Live('microphone');
+    proc.onaudioprocess = e => live && live.source === 'microphone' && live.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    src.connect(proc); proc.connect(ctx.destination);   // the processor only runs when connected; it outputs silence
+    mic = { stream, ctx };
+    liveUi(true, 'Listening to the microphone');
+  } catch (e) {
+    $('lerr').textContent = 'The microphone could not be opened: ' + (e.message || e) + '. Allow microphone access for this window and try again.';
+    $('lerr').hidden = false;
+  }
+}
+
+async function startSim() {
+  stopAll(false);
+  $('lerr').hidden = true;
+  const id = $('simfile').value, speed = +$('simspeed').value, aloud = $('simaloud').checked;
+  const name = $('simfile').selectedOptions[0]?.textContent || 'demo';
+  liveUi(true, `Preparing ${name}…`);
+  let pcm;
+  try {
+    const r = await fetch(`/api/samples/${id}/pcm`);
+    if (!r.ok) throw new Error((await r.json()).detail);
+    pcm = new Float32Array(await r.arrayBuffer());
+  } catch (e) { $('lerr').textContent = String(e.message || e); $('lerr').hidden = false; liveUi(false); return; }
+  live = new Live('simulation');
+  let player = null;
+  if (aloud && speed === 1) {
+    player = new Audio(`/api/samples/${id}/file`);
+    player.play().catch(() => {});
+  }
+  liveUi(true, `Feeding ${name} into the live detector${speed > 1 ? ` at ${speed}× speed` : ''} (as if it came from the microphone)`);
+  let pos = 0;
+  const step = Math.round(RATE / 4) * speed;   // a quarter of a second of sound per tick
+  const timer = setInterval(() => {
+    if (!live || live.source !== 'simulation') { clearInterval(timer); return; }
+    const end = Math.min(pcm.length, pos + step);
+    live.push(pcm.subarray(pos, end)); pos = end;
+    if (pos >= pcm.length) { clearInterval(timer); stopAll(true); }
+  }, 250);
+  sim = { timer, player };
+}
+
+function liveUi(on, text = '') {
+  $('lstart').disabled = on; $('lsim').disabled = on; $('lstop').disabled = !on;
+  $('lstatus').textContent = text; $('lpanel').hidden = !live && !on;
+  if (on) $('lfinal').hidden = true;
+}
+
+async function stopAll(finish = true) {
+  if (mic) { mic.stream.getTracks().forEach(t => t.stop()); mic.ctx.close(); mic = null; }
+  if (sim) { clearInterval(sim.timer); if (sim.player) sim.player.pause(); sim = null; }
+  const l = live;
+  if (!l) { liveUi(false); return; }
+  liveUi(false, finish ? 'Stopped. Checking the whole recording…' : '');
+  if (!finish) return;
+  await l.queue;
+  const rec = l.recording();
+  if (rec.length < RATE) { $('lstatus').textContent = 'Stopped (less than a second was recorded).'; return; }
+  try {
+    const r = await fetch('/api/live/check', { method: 'POST', body: rec.buffer, headers: { 'Content-Type': 'application/octet-stream' } });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail);
+    j.name = l.source === 'microphone' ? 'Microphone recording' : 'Simulated live recording';
+    $('lfinal').innerHTML = `<div class="k">Whole recording</div><audio controls src="${URL.createObjectURL(wav(rec))}"></audio>` + render(j);
+    $('lfinal').hidden = false;
+    $('lstatus').textContent = 'Stopped. The whole recording was checked again as one file:';
+  } catch (e) { $('lerr').textContent = String(e.message || e); $('lerr').hidden = false; }
+}
+
+function wav(x) {   // 16-bit PCM WAV, so the recording can be played back and saved
+  const b = new ArrayBuffer(44 + x.length * 2), v = new DataView(b);
+  const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + x.length * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true); v.setUint32(24, RATE, true); v.setUint32(28, RATE * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, x.length * 2, true);
+  for (let i = 0; i < x.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, x[i])) * 32767, true);
+  return new Blob([b], { type: 'audio/wav' });
+}
+
+$('lstart').onclick = startMic;
+$('lsim').onclick = startSim;
+$('lstop').onclick = () => stopAll(true);
 health(); samples(); setInterval(health, 15000);
 </script>
 </body></html>
