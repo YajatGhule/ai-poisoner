@@ -108,7 +108,9 @@ async function poll() {
   if (j.status === 'running') {
     $('wtitle').textContent = 'Working…'; $('fill').style.width = (j.progress * 100) + '%';
     $('bar').setAttribute('aria-valuenow', Math.round(j.progress * 100));
-    $('wtext').textContent = j.step ? `Step ${j.step} of ${j.steps}` + (j.eta_seconds != null ? ` · about ${fmt(j.eta_seconds)} left` : '') : 'Loading the model.';
+    $('wtext').textContent = !j.step ? 'Loading the model.' : j.step >= j.steps
+      ? 'Almost done: measuring the result and building the preview (about 10 seconds)…'
+      : `Step ${j.step} of ${j.steps}` + (j.eta_seconds != null ? ` · about ${fmt(j.eta_seconds)} left` : '');
   }
   if (j.status === 'done') return show(j);
   if (j.status === 'error') return reset(j.error || 'The backend could not protect this image.');

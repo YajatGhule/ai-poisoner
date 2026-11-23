@@ -1,0 +1,140 @@
+name: Windows installer
+
+# Builds the Windows release files on Linux, then installs them on a real Windows machine with the same
+# "irm | iex" path users take, checks the app answers correctly on the test files, and uninstalls it.
+on:
+  workflow_dispatch:
+  push:
+    branches: [sentinel-demo, main]
+    paths: ["windows/**", "poisoner/**", "extension/**", "tools/build-windows.sh", ".github/workflows/windows-installer.yml"]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - uses: pnpm/action-setup@v4
+        with: { version: 12.21.0 }
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.22" }
+      # The runner's Microsoft package repository can be broken (403); it isn't needed here.
+      - run: |
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
+          sudo apt-get update -q
+          sudo apt-get install -y -q libarchive-tools imagemagick rsync
+      - run: pnpm install --frozen-lockfile && pnpm build
+      - run: tools/build-windows.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: |
+            dist/sentinel-windows.zip
+            dist/install.ps1
+            dist/install-extension.ps1
+
+  install-and-test:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: powershell   # Windows PowerShell 5.1, what users have by default
+    env:
+      SENTINEL_NO_LAUNCH: "1"
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: windows-release, path: assets }
+
+      - name: PowerShell scripts parse
+        run: |
+          foreach ($f in Get-ChildItem assets\*.ps1) {
+            $errs = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errs)
+            if ($errs) { $errs | Format-List; throw "parse errors in $($f.Name)" } else { "ok  $($f.Name)" }
+          }
+
+      - name: Install (same as irm | iex; the test files come from the published release)
+        run: |
+          $env:SENTINEL_LOCAL_ASSETS = (Resolve-Path assets).Path
+          Get-Content assets\install.ps1 -Raw | Invoke-Expression
+
+      - name: Check installed files and shortcuts
+        run: |
+          $dest = Join-Path $env:LOCALAPPDATA 'SENTINEL'
+          $desk = [Environment]::GetFolderPath('Desktop')
+          $prog = [Environment]::GetFolderPath('Programs')
+          $need = "$dest\SENTINEL.exe", "$dest\uv\uv.exe", "$dest\extension\manifest.json", "$dest\uninstall.ps1",
+                  "$dest\install-extension.ps1", "$prog\Install SENTINEL Chrome extension.lnk",
+                  "$desk\SENTINEL Test Files\Install the Chrome extension.lnk",
+                  "$desk\SENTINEL.lnk", "$prog\SENTINEL.lnk", "$prog\Uninstall SENTINEL.lnk",
+                  "$desk\SENTINEL Test Files\HOW TO TEST.txt", "$desk\SENTINEL Test Files\1 Voices\AI\AI voice (Kokoro).wav"
+          foreach ($f in $need) { if (-not (Test-Path -LiteralPath $f)) { throw "missing: $f" } else { "ok  $f" } }
+          Get-ChildItem "$dest\models" | Format-Table Name, Length
+          "{0:N0} MB installed" -f ((Get-ChildItem $dest -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
+
+      - name: Start SENTINEL.exe and check the test files
+        run: |
+          $dest = Join-Path $env:LOCALAPPDATA 'SENTINEL'
+          $tests = Join-Path ([Environment]::GetFolderPath('Desktop')) 'SENTINEL Test Files'
+          Start-Process "$dest\SENTINEL.exe" -ArgumentList '--no-window', '--port', '8765', '--samples', "`"$tests`""
+          $ok = $false
+          for ($i = 0; $i -lt 90; $i++) {
+            try { $h = Invoke-RestMethod http://127.0.0.1:8765/api/health; $ok = $true; break } catch { Start-Sleep 2 }
+          }
+          if (-not $ok) { Get-Content "$dest\sentinel.log" -ErrorAction SilentlyContinue; throw 'app did not start' }
+          "health: version $($h.version), detectors $($h.detectors | ConvertTo-Json -Compress)"
+          $samples = Invoke-RestMethod http://127.0.0.1:8765/api/samples
+          "samples: $($samples.Count)"
+          function Check($name) {
+            $s = $samples | Where-Object { $_.name -like "*$name*" } | Select-Object -First 1
+            if (-not $s) { throw "sample not found: $name" }
+            Invoke-RestMethod -Method Post "http://127.0.0.1:8765/api/samples/$($s.id)/check"
+          }
+          $fails = @()
+          $r = Check 'AI voice (Kokoro)';   "AI voice:   $($r.voice.headline)";   if ($r.voice.verdict -ne 'ai') { $fails += 'AI voice' }
+          $r = Check 'Real voice';          "Real voice: $($r.voice.headline)";   if ($r.voice.verdict -ne 'human') { $fails += 'real voice' }
+          $r = Check 'AI part at';          "Mixed:      $($r.voice.headline) $($r.voice.stretches | ForEach-Object { $_[2] })"
+          if (-not $r.voice.partly_ai) { $fails += 'mixed speech' }
+          $r = Check 'ai_01.jpg';           "ai_01:      $($r.headline)";         if ($r.verdict -ne 'ai') { $fails += 'ai_01' }
+          $r = Check 'real_01.jpg';         "real_01:    $($r.headline)";         if ($r.verdict -eq 'ai') { $fails += 'real_01' }
+          $r = Check 'AI song 1';           "AI song 1:  $($r.music.headline)";   if ($r.music.verdict -ne 'ai') { $fails += 'AI song' }
+          $g = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/gallery
+          if ($g.Content -notmatch '/api/samples/\d+/file') { $fails += 'gallery' }
+          $home_ = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8765/
+          if ($home_.Content -notmatch 'SENTINEL') { $fails += 'app page' }
+          if ($fails) { Get-Content "$dest\sentinel.log"; throw "wrong results: $($fails -join ', ')" }
+          'all checks passed'
+
+      - name: Protect an image (Light)
+        run: |
+          $tests = Join-Path ([Environment]::GetFolderPath('Desktop')) 'SENTINEL Test Files'
+          $img = Join-Path $tests '2 Images\Real\real_01.jpg'
+          Add-Type -AssemblyName System.Net.Http
+          $c = New-Object System.Net.Http.HttpClient
+          $form = New-Object System.Net.Http.MultipartFormDataContent
+          $bytes = [IO.File]::ReadAllBytes($img)
+          $form.Add((New-Object System.Net.Http.ByteArrayContent(,$bytes)), 'file', 'real_01.jpg')
+          $form.Add((New-Object System.Net.Http.StringContent('light')), 'strength')
+          $job = $c.PostAsync('http://127.0.0.1:8765/api/protect', $form).Result.Content.ReadAsStringAsync().Result | ConvertFrom-Json
+          "job $($job.id): $($job.status)"
+          for ($i = 0; $i -lt 120; $i++) {
+            $s = Invoke-RestMethod "http://127.0.0.1:8765/api/jobs/$($job.id)"
+            if ($s.status -in 'done', 'failed', 'cancelled') { break }
+            Start-Sleep 5
+          }
+          $s | ConvertTo-Json -Depth 4
+          if ($s.status -ne 'done') { throw "protect job ended as $($s.status)" }
+
+      - name: Uninstall
+        run: |
+          $dest = Join-Path $env:LOCALAPPDATA 'SENTINEL'
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$dest\uninstall.ps1"
+          if (Test-Path $dest) { Get-ChildItem $dest; throw 'uninstall left files behind' }
+          if (Test-Path (Join-Path ([Environment]::GetFolderPath('Desktop')) 'SENTINEL.lnk')) { throw 'shortcut left behind' }
+          'uninstalled cleanly'
+
+      - name: Log on failure
+        if: failure()
+        run: Get-Content (Join-Path $env:LOCALAPPDATA 'SENTINEL\sentinel.log') -ErrorAction SilentlyContinue

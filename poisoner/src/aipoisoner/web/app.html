@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SENTINEL</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230e0d0c'/%3E%3Cpath d='M16 5l9 4v6c0 6-4 10-9 12-5-2-9-6-9-12V9z' fill='none' stroke='%23c9a45c' stroke-width='2.4'/%3E%3C/svg%3E">
+<style>
+  :root{--bg:#0e0d0c;--bg2:#171513;--ink:#ede7db;--mute:#8d867c;--faint:#2e2a27;--gold:#c9a45c;--red:#e0604f;--green:#6fbf8a;--amber:#c9a45c}
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--ink);font:15px/1.5 Inter,ui-sans-serif,system-ui,sans-serif;padding:28px 16px 64px}
+  main{max-width:900px;margin:0 auto}
+  .k{font:11px ui-monospace,"JetBrains Mono",monospace;letter-spacing:.16em;text-transform:uppercase;color:var(--mute)}
+  h1{font:400 46px/1.05 "Instrument Serif",Georgia,serif;letter-spacing:.02em;margin:6px 0 8px;color:var(--gold)}
+  h2{font:400 22px/1.2 "Instrument Serif",Georgia,serif;margin:0 0 6px}
+  p.lead{color:var(--mute);max-width:66ch;margin-bottom:18px}
+  .status{display:flex;align-items:center;gap:8px;color:var(--mute);font-size:13px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--mute);flex:none}
+  .dot.ok{background:var(--green)}.dot.bad{background:var(--red)}
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--faint);margin:20px 0 0}
+  .tabs button{font:inherit;background:none;border:0;color:var(--mute);padding:10px 16px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tabs button[aria-selected=true]{color:var(--ink);border-color:var(--gold)}
+  .card{background:var(--bg2);border:1px solid var(--faint);border-radius:12px;padding:20px;margin-top:16px}
+  #drop{display:block;border:1.5px dashed var(--faint);border-radius:12px;padding:34px 16px;text-align:center;color:var(--mute);cursor:pointer;transition:.15s;position:relative}
+  #drop:hover,#drop.over,#drop:focus-within{border-color:var(--gold);color:var(--ink)}
+  #drop b{color:var(--ink);font-weight:500}
+  #drop input{position:absolute;opacity:0;width:1px;height:1px}
+  .samples{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .samples button{font:12px/1.2 ui-monospace,monospace;background:none;border:1px solid var(--faint);color:var(--ink);border-radius:999px;padding:6px 10px;cursor:pointer}
+  .samples button:hover{border-color:var(--gold)}
+  .samples h3{width:100%;font:11px ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);margin-top:8px}
+  .result{display:grid;grid-template-columns:minmax(0,260px) 1fr;gap:20px;align-items:start}
+  .result.audio{grid-template-columns:1fr}
+  .result img{width:100%;border-radius:8px;display:block;background:#000}
+  audio,video{width:100%;margin-top:4px}
+  .verdict{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:13px;border-radius:999px;padding:4px 12px;background:var(--faint)}
+  .verdict i{width:9px;height:9px;border-radius:50%}
+  .v-ai i{background:var(--red)}.v-unsure i{background:var(--amber)}.v-human i{background:var(--green)}.v-none i{background:var(--mute)}
+  .head{font:400 30px/1.15 "Instrument Serif",Georgia,serif;margin:10px 0 4px}
+  .sub{color:var(--mute);font-size:13px}
+  .meter{height:8px;border-radius:4px;background:linear-gradient(90deg,var(--green) 0 60%,var(--amber) 60% 85%,var(--red) 85%);position:relative;margin:16px 0 4px;opacity:.85}
+  .meter b{position:absolute;top:-5px;width:3px;height:18px;background:var(--ink);border-radius:2px;transform:translateX(-1px)}
+  .scale{display:flex;justify-content:space-between;font-size:11px;color:var(--mute)}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+  .panel{border:1px solid var(--faint);border-radius:10px;padding:14px}
+  .panel .k{margin-bottom:6px}
+  svg.tl{width:100%;height:46px;display:block;margin-top:10px}
+  svg.tl.chart{height:auto;max-height:260px;overflow:visible;cursor:zoom-in}
+  .chartwrap{position:relative}
+  .vt{display:inline-flex;border:1px solid var(--faint);border-radius:6px;overflow:hidden;margin:0 0 4px}
+  .chartwrap .vt{position:absolute;top:-6px;right:84px;z-index:1;background:var(--bg)}
+  .vt button{background:none;border:0;color:var(--mute);font:11px ui-monospace,monospace;padding:3px 9px;cursor:pointer}
+  .vt button[aria-pressed=true]{background:var(--faint);color:var(--ink)}
+  .expand{position:absolute;top:-6px;right:0;background:var(--bg);border:1px solid var(--faint);color:var(--mute);border-radius:6px;font:11px ui-monospace,monospace;padding:3px 8px;cursor:pointer;z-index:1}
+  .expand:hover{color:var(--ink);border-color:var(--gold)}
+  #zoom{position:fixed;inset:0;background:rgba(8,7,6,.92);z-index:50;display:flex;align-items:center;justify-content:center;padding:3vh 3vw}
+  #zoom .box{background:var(--bg2);border:1px solid var(--faint);border-radius:14px;padding:18px 22px;width:min(1500px,96vw);max-height:94vh;overflow:auto}
+  #zoom .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  #zoom svg.tl.chart{max-height:none;width:100%;cursor:default}
+  #zoom .x{background:none;border:1px solid var(--faint);color:var(--ink);border-radius:8px;padding:6px 14px;cursor:pointer;font:inherit}
+  .busy{display:flex;align-items:center;gap:12px;color:var(--mute)}
+  .spin{width:18px;height:18px;border:2px solid var(--faint);border-top-color:var(--gold);border-radius:50%;animation:s 1s linear infinite}
+  @keyframes s{to{transform:rotate(360deg)}}
+  .err{color:var(--red);margin-top:12px}
+  iframe{width:100%;height:1500px;border:0;margin-top:8px;background:var(--bg)}
+  details{margin-top:18px;color:var(--mute);font-size:13px}
+  details p{margin-top:6px;max-width:72ch}
+  summary{cursor:pointer;color:var(--ink)}
+  .treat{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:10px;color:var(--mute);font-size:13px}
+  .treat small{flex-basis:100%;font-size:12px}
+  .seg{display:flex;border:1px solid var(--faint);border-radius:8px;overflow:hidden}
+  .seg button{font:inherit;background:none;border:0;color:var(--mute);padding:6px 12px;cursor:pointer}
+  .seg button[aria-pressed=true]{background:var(--faint);color:var(--ink)}
+  .meter.music{background:linear-gradient(90deg,var(--green) 0 30%,var(--amber) 30% 80%,var(--red) 80%)}
+  .row2.one{grid-template-columns:1fr}
+  .qlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px;margin-top:10px}
+  .q{display:flex;align-items:center;gap:8px;border:1px solid var(--faint);border-radius:10px;padding:8px 10px;cursor:pointer;background:none;color:var(--ink);font:inherit;text-align:left}
+  .q:hover{border-color:var(--gold)}.q .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+  .q .e{font-size:11px;color:var(--mute);white-space:nowrap}.q .r{font-weight:700;width:1.2em;text-align:center}
+  .r.ok{color:var(--green)}.r.near{color:var(--amber)}.r.bad{color:var(--red)}
+  .star{cursor:pointer;color:var(--mute);background:none;border:0;padding:0 2px;font-size:15px;line-height:1}.star.on{color:var(--gold)}
+  .samples .chip{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--faint);border-radius:999px;padding:0 4px 0 0}
+  .samples .chip button.name{border:0}
+  .media img{max-width:100%;max-height:420px;border-radius:8px;display:block;margin-top:8px}
+  .media video{max-height:420px;background:#000;border-radius:8px;margin-top:8px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.chips .verdict{font-weight:500;font-size:12px}
+  .lvl{display:inline-block;width:160px;height:8px;border-radius:4px;background:var(--faint);overflow:hidden}
+  .lvl i{display:block;height:100%;width:0;background:var(--green);transition:width .2s}
+  select{font:inherit;background:var(--bg2);color:var(--ink);border:1px solid var(--faint);border-radius:8px;padding:8px}
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .go{background:var(--gold);color:#17130a;font-weight:600;border:0;border-radius:8px;padding:10px 18px;cursor:pointer;font:inherit}
+  .go:disabled,.ghost:disabled{opacity:.4;cursor:not-allowed}
+  .ghost{background:none;border:1px solid var(--faint);color:var(--ink);border-radius:8px;padding:10px 18px;cursor:pointer;font:inherit}
+  [hidden]{display:none!important}
+  @media (max-width:640px){.result,.row2{grid-template-columns:1fr}h1{font-size:38px}}
+</style></head>
+<body><main>
+  <div class="k">Group G14 · Structured Innovation with Design Thinking</div>
+  <h1>SENTINEL</h1>
+  <p class="lead">On-device detection and data poisoning for AI images, voices and music. Everything runs on this computer: nothing you check or protect is uploaded anywhere.</p>
+  <div class="status" role="status"><span class="dot" id="dot"></span><span id="health">Starting…</span>
+    <a href="/gallery" target="_blank" rel="noopener" style="margin-left:auto;color:var(--gold)">Test page for the Chrome extension ↗</a></div>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" id="t-check" aria-selected="true" aria-controls="p-check">Check a file</button>
+    <button role="tab" id="t-live" aria-selected="false" aria-controls="p-live">Listen live</button>
+    <button role="tab" id="t-protect" aria-selected="false" aria-controls="p-protect">Protect an image</button>
+  </div>
+
+  <section id="p-check" role="tabpanel" aria-labelledby="t-check">
+    <div class="card">
+      <label id="drop"><input type="file" id="file" accept="image/*,audio/*,video/*">
+        <span><b>Choose a file</b> or drop one here<br><small>A picture, a voice recording, a song, or a video</small></span></label>
+      <div id="quick" hidden>
+        <div class="row" style="margin-top:14px"><h2 style="margin:0">★ Quick test</h2>
+          <button class="go" id="qrun" type="button" style="margin:0;padding:7px 14px">Run all</button>
+          <span class="sub" id="qstatus"></span></div>
+        <p class="sub" style="margin-top:4px">Your starred demo files, with what each should show. Click one to play and check it, or run them all. Star any file below with ☆.</p>
+        <div id="qlist" class="qlist"></div>
+      </div>
+      <div class="samples" id="samples" hidden></div>
+    </div>
+    <div class="card media" id="media" hidden></div>
+    <div class="card" id="busy" hidden><div class="busy"><span class="spin"></span><span id="busytext">Checking…</span></div></div>
+    <div class="card" id="out" hidden></div>
+    <div class="treat" id="treat" hidden><span>This recording is</span>
+      <div class="seg"><button type="button" data-v="both">Not sure</button><button type="button" data-v="speech">Speech</button><button type="button" data-v="song">A song</button></div>
+      <small>The voice model is made for speech and the music model for songs. Pick one to hide the other result.</small></div>
+    <p class="err" id="err" role="alert" hidden></p>
+    <details><summary>How sure is this, and what can it not do?</summary>
+      <p><b>Images:</b> a ViT classifier (AUC about 0.87 on our 36-image test set). AI at 85% or more, Human below 60%, Unsure in between. Real photos with heavy edits or unusual lighting can land in Unsure. Generator metadata (C2PA, IPTC, Stable Diffusion settings) is trusted over the model when present.</p>
+      <p><b>Voices:</b> a wav2vec2-based model scores every 4-second window. Reliable on Kokoro-style TTS voices, weaker on engines it never saw, which mostly come out Unsure. Spliced AI stretches are shown with timestamps.</p>
+      <p><b>Music:</b> SONICS SpecTTTra scores up to 12 five-second windows. Suno is caught well, short Udio clips are often missed. The voice model is made for speech, so ignore its result for songs.</p>
+    </details>
+  </section>
+
+  <section id="p-live" role="tabpanel" aria-labelledby="t-live" hidden>
+    <div class="card">
+      <h2>Listen live</h2>
+      <p class="sub" style="max-width:70ch">SENTINEL listens through the microphone and checks every 4 seconds for an AI voice and every
+        5 seconds for AI music, as it goes. Play a voice note, a video or a song near the laptop, or speak. Nothing is recorded to disk
+        or sent anywhere; when you stop, the whole recording is checked once more and you can play it back.</p>
+      <div class="row" style="margin-top:14px">
+        <button class="go" id="lstart" type="button" style="margin:0">● Start microphone</button>
+        <button class="ghost" id="lstop" type="button" disabled>■ Stop</button>
+        <span class="sub" id="lstatus"></span>
+      </div>
+      <div id="simrow" class="row" style="margin-top:16px" hidden>
+        <span class="sub">No microphone, or a quiet demo? Feed a demo recording into the same live detector:</span>
+        <select id="simfile" aria-label="Demo recording"></select>
+        <select id="simspeed" aria-label="Speed"><option value="1">1× (real time)</option><option value="4" selected>4× faster</option></select>
+        <label class="sub"><input type="checkbox" id="simaloud"> also play it out loud (1× only)</label>
+        <button class="ghost" id="lsim" type="button">▶ Simulate</button>
+      </div>
+      <p class="err" id="lerr" role="alert" hidden></p>
+    </div>
+    <div class="card" id="lpanel" hidden>
+      <div class="row"><span class="k">Time</span><b id="ltime" style="font-variant-numeric:tabular-nums">0:00</b>
+        <span class="k" style="margin-left:12px">Level</span><span class="lvl"><i id="llevel"></i></span></div>
+      <div class="row2"><div class="panel" id="lvoice"></div><div class="panel" id="lmusic"></div></div>
+    </div>
+    <div class="card" id="lfinal" hidden></div>
+  </section>
+
+  <section id="p-protect" role="tabpanel" aria-labelledby="t-protect" hidden>
+    <iframe id="pframe" title="Protect an image" data-src="/protect"></iframe>
+  </section>
+</main>
+<div id="zoom" role="dialog" aria-modal="true" aria-label="Graph" hidden>
+  <div class="box"><div class="top"><div class="k" id="ztitle">AI score over time</div><button class="x" id="zclose" type="button">Close ✕</button></div><div id="zbody"></div></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const pct = p => Math.round(p * 100) + '%';
+const LABEL = { ai: 'AI', unsure: 'Unsure', human: 'Human', null: 'Not enough' };
+const RATE = 16000;
+let busy = false, objUrl = null, last = null, treat = 'both', sampleList = [];
+
+const TABS = ['check', 'live', 'protect'];
+for (const t of TABS) {
+  $('t-' + t).onclick = () => {
+    for (const u of TABS) {
+      $('t-' + u).setAttribute('aria-selected', u === t);
+      $('p-' + u).hidden = u !== t;
+    }
+    const f = $('pframe');
+    if (t === 'protect' && !f.src) f.src = f.dataset.src;
+  };
+}
+
+async function health() {
+  try {
+    const h = await (await fetch('/api/health')).json();
+    const d = h.detectors || {};
+    const missing = Object.entries(d).filter(([, ok]) => !ok).map(([k]) => k);
+    $('dot').className = 'dot ok';
+    $('health').textContent = `Running on this computer (${h.device.toUpperCase()}) · ` +
+      (missing.length ? `the ${missing.join(', ')} model${missing.length > 1 ? 's' : ''} will download on first use` : 'all detectors ready offline');
+  } catch { $('dot').className = 'dot bad'; $('health').textContent = 'The SENTINEL backend is not answering.'; }
+}
+
+const isAudio = n => /\.(wav|mp3|m4a|aac|ogg|opus|flac)$/i.test(n);
+const isVideo = n => /\.(mp4|mov|mkv|webm|3gp|avi|m4v)$/i.test(n);
+const kindOf = n => isVideo(n) ? 'video' : isAudio(n) ? 'audio' : 'image';
+const ICON = { image: '▣', audio: '♪', video: '▶' };
+
+// What each demo file should show, worked out from where it sits ("AI", "Real", "Mixed" folders).
+function expectOf(name) {
+  if (/mixed|AI part/i.test(name)) return { want: 'partly', text: 'AI part at 0:58-1:24' };
+  if (/(^|\/)AI(\/|$)|suno|udio|ai_\d|AI voice/i.test(name) && !/real/i.test(name)) return { want: 'ai', text: 'AI' };
+  if (/(^|\/)Real(\/|$)|real_\d|real voice|real song/i.test(name)) return { want: 'human', text: 'not AI' };
+  return null;
+}
+// the verdict that matters for this file: voice for speech files, music for songs, pictures for images/videos
+function mainVerdict(name, j) {
+  if (j.kind === 'image') return j.verdict;
+  const song = /music|song|suno|udio/i.test(name);
+  if (j.kind === 'video' && !j.has_sound) return j.frames ? j.frames.verdict : null;
+  const part = song ? j.music : j.voice;
+  if (song) return part ? part.verdict : null;
+  return j.voice && j.voice.partly_ai ? 'partly' : (j.voice ? j.voice.verdict : null);
+}
+function judge(name, j) {
+  const e = expectOf(name), got = mainVerdict(name, j);
+  if (!e) return { cls: '', mark: '·', got };
+  if (e.want === 'partly') return { cls: got === 'partly' ? 'ok' : 'bad', mark: got === 'partly' ? '✓' : '✗', got };
+  if (e.want === 'ai') return { cls: got === 'ai' ? 'ok' : got === 'unsure' ? 'near' : 'bad', mark: got === 'ai' ? '✓' : got === 'unsure' ? '~' : '✗', got };
+  return { cls: got === 'ai' ? 'bad' : 'ok', mark: got === 'ai' ? '✗' : '✓', got };
+}
+const DEFAULT_STARS = ['AI voice (Kokoro)', 'Real voice', 'AI part at', 'ai_01.jpg', 'ai_02.png', 'real_01.jpg', 'real_03.jpg',
+                       'AI song 1', 'AI song 3', 'Real song 2', 'c4a_ai_image.mp4'];
+function loadStars() {
+  try { const v = JSON.parse(localStorage.getItem('sentinel-stars')); if (Array.isArray(v)) return new Set(v); } catch { /* none yet */ }
+  return null;
+}
+function saveStars(set) { try { localStorage.setItem('sentinel-stars', JSON.stringify([...set])); } catch { /* private window */ } }
+let stars = new Set();
+
+function openSample(s) {
+  const base = s.name.split('/').pop();
+  setTreat(/music|song|suno|udio/i.test(s.name) ? 'song' : /voice|speech/i.test(s.name) ? 'speech' : 'both');
+  showMedia(base, `/api/samples/${s.id}/file`);
+  return run(fetch(`/api/samples/${s.id}/check`, { method: 'POST' }), base);
+}
+
+function drawQuick() {
+  const list = $('qlist');
+  const picked = sampleList.filter(s => stars.has(s.name));
+  $('quick').hidden = !picked.length;
+  list.innerHTML = '';
+  for (const s of picked) {
+    const e = expectOf(s.name), base = s.name.split('/').pop();
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'q'; b.dataset.id = s.id; b.title = s.name;
+    b.innerHTML = `<span class="r" id="qr${s.id}">·</span><span class="n">${ICON[kindOf(base)]} ${esc(base)}</span><span class="e">${e ? 'expect ' + esc(e.text) : ''}</span>`;
+    b.onclick = () => openSample(s);
+    list.append(b);
+  }
+}
+
+$('qrun').onclick = async () => {
+  if (busy) return;
+  const picked = sampleList.filter(s => stars.has(s.name));
+  let ok = 0, near = 0, bad = 0, n = 0;
+  $('qrun').disabled = true;
+  for (const s of picked) {
+    $('qstatus').textContent = `Checking ${++n} of ${picked.length}…`;
+    const mark = document.getElementById('qr' + s.id);
+    try {
+      const r = await fetch(`/api/samples/${s.id}/check`, { method: 'POST' });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.detail);
+      const v = judge(s.name, j);
+      mark.textContent = v.mark; mark.className = 'r ' + v.cls; mark.title = 'Result: ' + (v.got ?? 'none');
+      if (v.cls === 'ok') ok++; else if (v.cls === 'near') near++; else if (v.cls === 'bad') bad++;
+    } catch (e) { mark.textContent = '✗'; mark.className = 'r bad'; mark.title = String(e.message || e); bad++; }
+  }
+  $('qrun').disabled = false;
+  $('qstatus').textContent = `${ok} as expected${near ? `, ${near} Unsure (close)` : ''}${bad ? `, ${bad} different` : ''}. “Unsure” is an honest answer, not an error.`;
+};
+
+async function samples() {
+  sampleList = await (await fetch('/api/samples')).json().catch(() => []);
+  if (!sampleList.length) return;
+  stars = loadStars() ?? new Set(sampleList.filter(s => DEFAULT_STARS.some(k => s.name.includes(k))).map(s => s.name));
+  drawQuick();
+  const box = $('samples');
+  const groups = {};
+  for (const s of sampleList) (groups[s.name.split('/').slice(0, -1).join(' / ') || 'samples'] ??= []).push(s);
+  box.innerHTML = '';
+  for (const [g, items] of Object.entries(groups)) {
+    const h = document.createElement('h3'); h.textContent = 'Demo files · ' + g; box.append(h);
+    for (const s of items.slice(0, 40)) {
+      const chip = document.createElement('span'); chip.className = 'chip';
+      const base = s.name.split('/').pop();
+      const star = document.createElement('button');
+      star.type = 'button'; star.className = 'star' + (stars.has(s.name) ? ' on' : ''); star.textContent = stars.has(s.name) ? '★' : '☆';
+      star.title = 'Add to or remove from Quick test'; star.setAttribute('aria-label', 'Star ' + base);
+      star.onclick = () => {
+        if (stars.has(s.name)) stars.delete(s.name); else stars.add(s.name);
+        saveStars(stars); star.className = 'star' + (stars.has(s.name) ? ' on' : ''); star.textContent = stars.has(s.name) ? '★' : '☆'; drawQuick();
+      };
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'name'; b.textContent = ICON[kindOf(base)] + ' ' + base; b.title = 'Play and check ' + s.name;
+      b.onclick = () => openSample(s);
+      chip.append(star, b);
+      box.append(chip);
+    }
+  }
+  box.hidden = false;
+  // demo recordings for the simulated live listening
+  const sel = $('simfile');
+  sel.innerHTML = '';
+  for (const s of sampleList.filter(s => isAudio(s.name) || (isVideo(s.name) && /speech|voice|song|suno|udio/i.test(s.name)))) {
+    const o = document.createElement('option'); o.value = s.id; o.textContent = s.name; sel.append(o);
+  }
+  const pref = [...sel.options].find(o => /AI part|long_speech/i.test(o.textContent));
+  if (pref) sel.value = pref.value;
+  $('simrow').hidden = !sel.options.length;
+}
+
+function showMedia(name, src, type = '') {
+  const k = /^video/.test(type) ? 'video' : /^audio/.test(type) ? 'audio' : /^image/.test(type) ? 'image' : kindOf(name);
+  const el = k === 'image' ? `<img src="${src}" alt="${esc(name)}">` :
+    k === 'video' ? `<video controls preload="metadata" src="${src}"></video>` : `<audio controls preload="metadata" src="${src}"></audio>`;
+  $('media').innerHTML = `<div class="k">${esc(name)}</div>${el}`;
+  $('media').className = 'card media ' + k;
+  $('media').hidden = false;
+}
+
+function pick(f) {
+  if (!f || busy) return;
+  const fd = new FormData(); fd.append('file', f);
+  if (objUrl) URL.revokeObjectURL(objUrl);
+  objUrl = URL.createObjectURL(f);
+  setTreat('both');
+  showMedia(f.name, objUrl, f.type);
+  run(fetch('/api/check', { method: 'POST', body: fd }), f.name);
+}
+
+async function run(req, name) {
+  if (busy) return;
+  busy = true; $('err').hidden = true; $('out').hidden = true; $('treat').hidden = true; $('busy').hidden = false;
+  $('busytext').textContent = `Checking ${name}…` + (kindOf(name) !== 'image' ? ' Long recordings take a few seconds per minute; you can play it meanwhile.' : '');
+  try {
+    const r = await req;
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || 'The check failed.');
+    show(j);
+  } catch (e) { $('err').textContent = String(e.message || e); $('err').hidden = false; }
+  finally { busy = false; $('busy').hidden = true; }
+}
+
+const badge = v => `<span class="verdict v-${v ?? 'none'}"><i></i>${LABEL[v]}</span>`;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+function setTreat(v) {
+  treat = v;
+  for (const b of document.querySelectorAll('#treat button')) b.setAttribute('aria-pressed', b.dataset.v === v);
+}
+for (const b of document.querySelectorAll('#treat button')) b.onclick = () => { setTreat(b.dataset.v); if (last) show(last); };
+
+function voicePanel(v, seconds, hidden) {
+  const stretches = v.stretches.length ? 'Sounds AI at ' + v.stretches.map(s => s[2]).join(', ') : 'No stretch sounds AI';
+  return `<div class="panel"${hidden ? ' hidden' : ''}><div class="k">Voice (speech)</div>${badge(v.verdict)}
+    <div class="head" style="font-size:24px">${esc(v.headline)}</div>
+    <p class="sub">${v.windows ? `${pct(v.ai_share)} of ${v.windows} windows sound AI · ${stretches}` : 'No clear speech found'}</p>
+    ${timeline(v.timeline, seconds)}</div>`;
+}
+function musicPanel(m, hidden) {
+  return `<div class="panel"${hidden ? ' hidden' : ''}><div class="k">Music</div>${m ? badge(m.verdict) : badge(null)}
+    <div class="head" style="font-size:24px">${m ? esc(m.headline.replace('Music: ', '')) : 'No music found'}</div>
+    ${m ? `<div class="meter music"><b style="left:${m.score * 100}%"></b></div><div class="scale"><span>Human</span><span>Unsure</span><span>AI</span></div>
+    <p class="sub" style="margin-top:8px">Mean of ${m.windows} five-second windows.</p>` : ''}</div>`;
+}
+function framesPanel(f) {
+  if (!f) return `<div class="panel"><div class="k">Pictures in the video</div>${badge(null)}<div class="head" style="font-size:24px">No picture to check</div><p class="sub">The video is blank (for example a black screen behind a sound track).</p></div>`;
+  const chips = f.frames.map(x => `<span class="verdict v-${x.verdict}" title="${pct(x.score)} AI"><i></i>${clock(x.t)} · ${pct(x.score)}</span>`).join(' ');
+  return `<div class="panel"><div class="k">Pictures in the video (${f.frames.length} frames)</div>${badge(f.verdict)}
+    <div class="head" style="font-size:24px">${esc(f.headline)}</div><div class="chips">${chips}</div></div>`;
+}
+
+function render(j) {
+  if (j.kind === 'image') {
+    return `<div><div class="k">${esc(j.name)} · ${j.size.join(' × ')} px</div>
+        <div style="margin-top:10px">${badge(j.verdict)}</div>
+        <div class="head">${esc(j.headline)}</div>
+        <div class="meter"><b style="left:${j.score * 100}%"></b></div>
+        <div class="scale"><span>Human</span><span>Unsure</span><span>AI</span></div>
+        <p class="sub" style="margin-top:10px">${j.why ? 'Decided by metadata: ' + esc(j.why) + '. ' : ''}${j.c2pa ? 'Carries C2PA Content Credentials. ' : ''}Model score ${pct(j.score)} AI.</p></div>`;
+  }
+  if (j.kind === 'video') {
+    const parts = [framesPanel(j.frames)];
+    if (j.has_sound) parts.push(voicePanel(j.voice, j.seconds, treat === 'song'), musicPanel(j.music, treat === 'speech'));
+    else parts.push('<div class="panel"><div class="k">Sound</div>' + badge(null) + '<div class="head" style="font-size:24px">No sound track</div><p class="sub">This video is silent, so only its pictures were checked.</p></div>');
+    return `<div class="k">${esc(j.name)} · ${clock(j.seconds)}</div><div class="row2">${parts.join('')}</div>`;
+  }
+  return `<div class="k">${esc(j.name || 'Recording')} · ${clock(j.seconds)}</div>
+    <div class="row2${treat === 'both' ? '' : ' one'}">${voicePanel(j.voice, j.seconds, treat === 'song')}${musicPanel(j.music, treat === 'speech')}</div>`;
+}
+
+function show(j) {
+  last = j;
+  $('treat').hidden = j.kind === 'image' || (j.kind === 'video' && !j.has_sound);
+  $('out').innerHTML = render(j);
+  $('out').hidden = false;
+}
+
+// The earlier, compact view: one bar per window, no axes.
+function barsView(tl, total, live) {
+  if (!tl.length) return live ? '<svg class="tl" viewBox="0 0 600 40"></svg>' : '';
+  const W = 600, H = 40, span = Math.max(total, live ? 30 : 4), w = Math.max(2, W * 4 / span);
+  const bars = tl.map(([t, p]) => `<rect x="${(t / span * W).toFixed(1)}" y="${(H - 6 - p * (H - 10)).toFixed(1)}" width="${w.toFixed(1)}" height="${(6 + p * (H - 10)).toFixed(1)}" fill="${p >= .8 ? '#e0604f' : p >= .4 ? '#c9a45c' : '#6fbf8a'}" opacity=".75"/>`).join('');
+  return `<svg class="tl" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="AI score over time">${bars}</svg>
+    <div class="scale"><span>0:00</span><span>AI score over time</span><span>${clock(span)}</span></div>`;
+}
+function viewToggle() {
+  const v = chartView();
+  return `<span class="vt" role="group" aria-label="Graph style"><button type="button" data-view="chart" aria-pressed="${v === 'chart'}">Graph</button><button type="button" data-view="bars" aria-pressed="${v === 'bars'}">Bars</button></span>`;
+}
+function chartView() { try { return localStorage.getItem('sentinel-graph') === 'bars' ? 'bars' : 'chart'; } catch { return 'chart'; } }
+
+// AI score over time: a proper chart with a 0-100% axis, gridlines, the AI and Human cutoffs, a time axis and hover values.
+function timeline(tl, total, live = false) {
+  if (chartView() === 'bars') return viewToggle() + barsView(tl, total, live);
+  const W = 640, H = 210, L = 44, R = 14, T = 12, B = 34, pw = W - L - R, ph = H - T - B;
+  const span = Math.max(total, live ? 30 : 8);
+  const X = t => L + Math.min(1, t / span) * pw, Y = p => T + (1 - p) * ph;
+  const col = p => p >= .8 ? '#e0604f' : p >= .4 ? '#c9a45c' : '#6fbf8a';
+  let g = '';
+  for (const v of [0, .25, .5, .75, 1]) {
+    g += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#2e2a27" stroke-width="1"/>` +
+         `<text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" fill="#8d867c" font-size="11">${Math.round(v * 100)}%</text>`;
+  }
+  const step = span > 600 ? 120 : span > 240 ? 60 : span > 90 ? 20 : span > 40 ? 10 : 5;
+  for (let t = 0; t <= span + 0.01; t += step) {
+    g += `<line x1="${X(t)}" x2="${X(t)}" y1="${T}" y2="${T + ph}" stroke="#2e2a27" stroke-width="1" stroke-dasharray="2 4"/>` +
+         `<text x="${X(t)}" y="${H - B + 16}" text-anchor="middle" fill="#8d867c" font-size="11">${clock(t)}</text>`;
+  }
+  // cutoffs: at or above 80% a window counts as AI, below 40% as human
+  g += `<line x1="${L}" x2="${W - R}" y1="${Y(.8)}" y2="${Y(.8)}" stroke="#e0604f" stroke-width="1.2" stroke-dasharray="6 4" opacity=".8"/>` +
+       `<text x="${W - R - 2}" y="${Y(.8) - 4}" text-anchor="end" fill="#e0604f" font-size="10">AI at 80% and above</text>` +
+       `<line x1="${L}" x2="${W - R}" y1="${Y(.4)}" y2="${Y(.4)}" stroke="#6fbf8a" stroke-width="1.2" stroke-dasharray="6 4" opacity=".8"/>` +
+       `<text x="${W - R - 2}" y="${Y(.4) + 12}" text-anchor="end" fill="#6fbf8a" font-size="10">Human below 40%</text>`;
+  let plot = '';
+  if (tl.length) {
+    const pts = tl.map(([t, p]) => [X(t + 2), Y(p), p, t]);   // each window covers 4 s: plot it at its middle
+    const area = `M${pts[0][0]},${Y(0)} ` + pts.map(([x, y]) => `L${x.toFixed(1)},${y.toFixed(1)}`).join(' ') + ` L${pts[pts.length - 1][0]},${Y(0)} Z`;
+    plot = `<path d="${area}" fill="#c9a45c" opacity=".12"/>` +
+      `<polyline points="${pts.map(([x, y]) => x.toFixed(1) + ',' + y.toFixed(1)).join(' ')}" fill="none" stroke="#ede7db" stroke-width="1.6" stroke-linejoin="round" opacity=".85"/>` +
+      pts.map(([x, y, p, t]) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.4" fill="${col(p)}" stroke="#0e0d0c" stroke-width="1"><title>${clock(t)}–${clock(t + 4)}: ${Math.round(p * 100)}% AI</title></circle>`).join('');
+  }
+  return `<div class="chartwrap${live ? ' live' : ''}">${viewToggle()}<button type="button" class="expand" title="Expand the graph (Esc to close)" aria-label="Expand the graph">⤢ Expand</button>
+    <svg class="tl chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Chance that each 4-second window is an AI voice, from 0 to 100 percent, over time">${g}${plot}
+    <text x="12" y="${T + ph / 2}" transform="rotate(-90 12 ${T + ph / 2})" text-anchor="middle" fill="#8d867c" font-size="11">chance it is AI</text></svg></div>`;
+}
+function clock(s) { s = Math.floor(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
+
+$('file').onchange = e => { pick(e.target.files[0]); e.target.value = ''; };
+const drop = $('drop');
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); pick(e.dataTransfer.files[0]); };
+
+// ===================== Live listening (microphone, or a demo recording fed in as if it were live) =====================
+const VOICE_WIN = 4 * RATE, VOICE_HOP = 2 * RATE, MUSIC_WIN = 5 * RATE;
+let live = null;
+
+class Live {
+  constructor(source) {
+    this.source = source; this.buf = new Float32Array(RATE * 60); this.n = 0;
+    this.nextVoice = VOICE_WIN; this.nextMusic = MUSIC_WIN;
+    this.voice = []; this.music = []; this.skipped = 0; this.queue = Promise.resolve(); this.level = 0;
+  }
+  push(x) {
+    if (this.n + x.length > this.buf.length) {
+      const b = new Float32Array(Math.max(this.buf.length * 2, this.n + x.length)); b.set(this.buf.subarray(0, this.n)); this.buf = b;
+    }
+    this.buf.set(x, this.n); this.n += x.length;
+    let s = 0; for (let i = 0; i < x.length; i++) s += x[i] * x[i];
+    this.level = Math.sqrt(s / Math.max(1, x.length));
+    while (this.n >= this.nextVoice) { const end = this.nextVoice; this.send('voice', end - VOICE_WIN, end); this.nextVoice += VOICE_HOP; }
+    while (this.n >= this.nextMusic) { const end = this.nextMusic; this.send('music', end - MUSIC_WIN, end); this.nextMusic += MUSIC_WIN; }
+    drawLive();
+  }
+  send(kind, a, b) {
+    const body = this.buf.slice(a, b).buffer;
+    this.queue = this.queue.then(async () => {
+      try {
+        const r = await (await fetch('/api/live/' + kind, { method: 'POST', body, headers: { 'Content-Type': 'application/octet-stream' } })).json();
+        if (kind === 'voice') { if (r.usable) this.voice.push([a / RATE, r.score]); else this.skipped++; }
+        else if (r.score != null) this.music.push([a / RATE, r.score]);
+      } catch { /* one lost window is fine */ }
+      drawLive();
+    });
+  }
+  recording() { return this.buf.slice(0, this.n); }
+}
+
+function voiceSummary(tl) {
+  const n = tl.length, scores = tl.map(x => x[1]);
+  const share = n ? scores.filter(p => p >= 0.8).length / n : 0;
+  const median = n ? [...scores].sort((a, b) => a - b)[Math.floor(n / 2)] : null;
+  const stretches = [];
+  for (const [t, p] of tl) {
+    if (p < 0.8) continue;
+    const last = stretches[stretches.length - 1];
+    if (last && t <= last[1] + 2) last[1] = Math.max(last[1], t + 4); else stretches.push([t, t + 4]);
+  }
+  let verdict = null;
+  if (n >= 3) verdict = share >= 0.5 || median >= 0.8 ? 'ai' : share <= 0.1 && median < 0.4 ? 'human' : 'unsure';
+  const partly = verdict === 'unsure' && stretches.reduce((a, [x, y]) => a + y - x, 0) >= 8;
+  const head = verdict === null ? (n ? `Listening… (${n} of 3 windows)` : 'Waiting for clear speech…') :
+    { ai: 'Likely an AI voice', human: 'Likely a human voice', unsure: partly ? 'Parts sound AI' : 'Unsure' }[verdict];
+  return { verdict, head, share, n, stretches };
+}
+
+function drawLive() {
+  if (!live) return;
+  const sec = live.n / RATE;
+  $('ltime').textContent = clock(sec);
+  $('llevel').style.width = Math.min(100, live.level * 400) + '%';
+  const v = voiceSummary(live.voice);
+  $('lvoice').innerHTML = `<div class="k">Voice (speech), live</div>${badge(v.verdict)}<div class="head" style="font-size:24px">${esc(v.head)}</div>
+    <p class="sub">${v.n ? `${pct(v.share)} of ${v.n} windows sound AI` : 'Speak, or play a recording near the microphone'}${v.stretches.length ? ' · AI at ' + v.stretches.map(([a, b]) => clock(a) + '–' + clock(b)).join(', ') : ''}${live.skipped ? ` · ${live.skipped} quiet windows skipped` : ''}</p>
+    ${timeline(live.voice, sec, true)}`;
+  if (zoomLive && !$('zoom').hidden) $('zbody').innerHTML = timeline(live.voice, sec, true).replace(/<button[\s\S]*?<\/button>/, '');
+  const ms = live.music.map(x => x[1]);
+  const mp = ms.length ? ms.reduce((a, b) => a + b, 0) / ms.length : null;
+  const mv = mp == null ? null : mp >= 0.8 ? 'ai' : mp <= 0.3 ? 'human' : 'unsure';
+  $('lmusic').innerHTML = `<div class="k">Music, live</div>${badge(mv)}<div class="head" style="font-size:24px">${mp == null ? 'Waiting for 5 s of sound…' :
+    { ai: 'Likely AI-generated', human: 'Likely human-made', unsure: 'Unsure' }[mv] + ` (${pct(mp)} AI)`}</div>
+    ${mp == null ? '' : `<div class="meter music"><b style="left:${mp * 100}%"></b></div><div class="scale"><span>Human</span><span>Unsure</span><span>AI</span></div><p class="sub" style="margin-top:8px">${ms.length} five-second windows so far.</p>`}`;
+}
+
+let mic = null, sim = null;
+
+async function startMic() {
+  stopAll(false);
+  $('lerr').hidden = true;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
+    const ctx = new AudioContext({ sampleRate: RATE });
+    const src = ctx.createMediaStreamSource(stream);
+    const proc = ctx.createScriptProcessor(4096, 1, 1);
+    live = new Live('microphone');
+    proc.onaudioprocess = e => live && live.source === 'microphone' && live.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    src.connect(proc); proc.connect(ctx.destination);   // the processor only runs when connected; it outputs silence
+    mic = { stream, ctx };
+    liveUi(true, 'Listening to the microphone');
+  } catch (e) {
+    $('lerr').textContent = 'The microphone could not be opened: ' + (e.message || e) + '. Allow microphone access for this window and try again.';
+    $('lerr').hidden = false;
+  }
+}
+
+async function startSim() {
+  stopAll(false);
+  $('lerr').hidden = true;
+  const id = $('simfile').value, speed = +$('simspeed').value, aloud = $('simaloud').checked;
+  const name = $('simfile').selectedOptions[0]?.textContent || 'demo';
+  liveUi(true, `Preparing ${name}…`);
+  let pcm;
+  try {
+    const r = await fetch(`/api/samples/${id}/pcm`);
+    if (!r.ok) throw new Error((await r.json()).detail);
+    pcm = new Float32Array(await r.arrayBuffer());
+  } catch (e) { $('lerr').textContent = String(e.message || e); $('lerr').hidden = false; liveUi(false); return; }
+  live = new Live('simulation');
+  let player = null;
+  if (aloud && speed === 1) {
+    player = new Audio(`/api/samples/${id}/file`);
+    player.play().catch(() => {});
+  }
+  liveUi(true, `Feeding ${name} into the live detector${speed > 1 ? ` at ${speed}× speed` : ''} (as if it came from the microphone)`);
+  let pos = 0;
+  const step = Math.round(RATE / 4) * speed;   // a quarter of a second of sound per tick
+  const timer = setInterval(() => {
+    if (!live || live.source !== 'simulation') { clearInterval(timer); return; }
+    const end = Math.min(pcm.length, pos + step);
+    live.push(pcm.subarray(pos, end)); pos = end;
+    if (pos >= pcm.length) { clearInterval(timer); stopAll(true); }
+  }, 250);
+  sim = { timer, player };
+}
+
+function liveUi(on, text = '') {
+  $('lstart').disabled = on; $('lsim').disabled = on; $('lstop').disabled = !on;
+  $('lstatus').textContent = text; $('lpanel').hidden = !live && !on;
+  if (on) $('lfinal').hidden = true;
+}
+
+async function stopAll(finish = true) {
+  if (mic) { mic.stream.getTracks().forEach(t => t.stop()); mic.ctx.close(); mic = null; }
+  if (sim) { clearInterval(sim.timer); if (sim.player) sim.player.pause(); sim = null; }
+  const l = live;
+  if (!l) { liveUi(false); return; }
+  liveUi(false, finish ? 'Stopped. Checking the whole recording…' : '');
+  if (!finish) return;
+  await l.queue;
+  const rec = l.recording();
+  if (rec.length < RATE) { $('lstatus').textContent = 'Stopped (less than a second was recorded).'; return; }
+  try {
+    const r = await fetch('/api/live/check', { method: 'POST', body: rec.buffer, headers: { 'Content-Type': 'application/octet-stream' } });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail);
+    j.name = l.source === 'microphone' ? 'Microphone recording' : 'Simulated live recording';
+    $('lfinal').innerHTML = `<div class="k">Whole recording</div><audio controls src="${URL.createObjectURL(wav(rec))}"></audio>` + render(j);
+    $('lfinal').hidden = false;
+    $('lstatus').textContent = 'Stopped. The whole recording was checked again as one file:';
+  } catch (e) { $('lerr').textContent = String(e.message || e); $('lerr').hidden = false; }
+}
+
+function wav(x) {   // 16-bit PCM WAV, so the recording can be played back and saved
+  const b = new ArrayBuffer(44 + x.length * 2), v = new DataView(b);
+  const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + x.length * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true); v.setUint32(24, RATE, true); v.setUint32(28, RATE * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, x.length * 2, true);
+  for (let i = 0; i < x.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, x[i])) * 32767, true);
+  return new Blob([b], { type: 'audio/wav' });
+}
+
+let zoomLive = false;
+function openZoom(wrap) {
+  zoomLive = wrap.classList.contains('live');
+  const svg = wrap.querySelector('svg').outerHTML;
+  const bars = !wrap.querySelector('.chart');
+  $('zbody').innerHTML = `<div class="chartwrap">${svg}</div>`;
+  if (bars) $('zbody').innerHTML += '<p class="sub">Switch to the Graph view for the 0-100% axis.</p>';
+  $('ztitle').textContent = zoomLive ? 'AI score over time · live' : 'AI score over time';
+  $('zoom').hidden = false; $('zclose').focus();
+}
+function closeZoom() { $('zoom').hidden = true; zoomLive = false; $('zbody').innerHTML = ''; }
+document.addEventListener('click', e => {
+  const vb = e.target.closest('[data-view]');
+  if (vb) {
+    try { localStorage.setItem('sentinel-graph', vb.dataset.view); } catch { /* private window */ }
+    if (last && last.voice) show(last);
+    if (live) drawLive();
+    return;
+  }
+  const w = e.target.closest('.chartwrap');
+  if (w && !e.target.closest('#zoom')) openZoom(w);
+  else if (e.target === $('zoom') || e.target.closest('#zclose')) closeZoom();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('zoom').hidden) closeZoom(); });
+
+$('lstart').onclick = startMic;
+$('lsim').onclick = startSim;
+$('lstop').onclick = () => stopAll(true);
+health(); samples(); setInterval(health, 15000);
+</script>
+</body></html>

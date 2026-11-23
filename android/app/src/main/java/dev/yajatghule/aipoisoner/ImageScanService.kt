@@ -28,6 +28,7 @@ class ImageScanService : AccessibilityService() {
     private val cache = LruCache<Long, Float>(500)      // perceptual hash -> score, so scrolling back is instant
     @Volatile private var detector: ImageDetector? = null
     private var overlay: OverlayView? = null
+    private var chip: ChipView? = null
     private var scanning = false
     @Volatile private var destroyed = false
     private var lastShot = 0L
@@ -53,10 +54,42 @@ class ImageScanService : AccessibilityService() {
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
             fitInsetsTypes = 0
         }
-        getSystemService(WindowManager::class.java).addView(view, params)
+        val wm = getSystemService(WindowManager::class.java)
+        wm.addView(view, params)
         overlay = view
+        addChip(wm, view)
         instance = this
         loadDetector()
+    }
+
+    /** The small tappable chip (top right, under the status bar): counts, and tap to minimise or expand. */
+    private fun addChip(wm: WindowManager, view: OverlayView) {
+        val c = ChipView(this)
+        val min = Prefs.overlayMinimised(this)
+        c.minimised = min
+        view.minimised = min
+        c.visibility = View.GONE
+        c.setOnClickListener {
+            val next = !Prefs.overlayMinimised(this)
+            Prefs.setOverlayMinimised(this, next)
+            c.minimised = next
+            view.minimised = next
+        }
+        view.onBadges = { c.update(it) }
+        val dp = resources.displayMetrics.density
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            x = (8 * dp).toInt()
+            y = (96 * dp).toInt()
+        }
+        wm.addView(c, params)
+        chip = c
     }
 
     private fun loadDetector() {
@@ -101,6 +134,7 @@ class ImageScanService : AccessibilityService() {
         scanning = true
         dirty = false
         view.visibility = View.INVISIBLE       // keep our own badges out of the screenshot
+        chip?.alpha = 0f
         main.postDelayed({ capture(boxes.take(MAX_PER_SCAN), det) }, 48)
     }
 
@@ -121,7 +155,7 @@ class ImageScanService : AccessibilityService() {
                         shot.hardwareBuffer.close()
                     }
                     if (destroyed) { frame?.recycle(); return }
-                    overlay?.visibility = View.VISIBLE
+                    overlay?.visibility = View.VISIBLE; chip?.alpha = 1f
                     if (frame == null) { Log.w(TAG, "could not read screenshot pixels"); scanning = false; return }
                     // The service can be torn down while a shot is in flight; execute() would then throw.
                     val queued = runCatching {
@@ -149,14 +183,14 @@ class ImageScanService : AccessibilityService() {
                 override fun onFailure(errorCode: Int) {
                     Log.w(TAG, "screenshot failed: $errorCode")
                     if (destroyed) return
-                    overlay?.visibility = View.VISIBLE
+                    overlay?.visibility = View.VISIBLE; chip?.alpha = 1f
                     scanning = false
                     if (errorCode == ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT) main.postDelayed(scanTask, SCREENSHOT_GAP_MS)
                 }
             })
         } catch (e: Exception) {
             Log.w(TAG, "takeScreenshot threw", e)
-            overlay?.visibility = View.VISIBLE
+            overlay?.visibility = View.VISIBLE; chip?.alpha = 1f
             scanning = false
         }
     }
@@ -235,6 +269,7 @@ class ImageScanService : AccessibilityService() {
         instance = null
         main.removeCallbacksAndMessages(null)
         overlay?.let { runCatching { getSystemService(WindowManager::class.java).removeView(it) } }
+        chip?.let { runCatching { getSystemService(WindowManager::class.java).removeView(it) } }
         worker.execute { detector?.close(); detector = null }
         worker.shutdown()
         super.onDestroy()

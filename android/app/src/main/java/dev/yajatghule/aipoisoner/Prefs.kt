@@ -13,6 +13,10 @@ object Prefs {
     fun coverAi(ctx: Context) = sp(ctx).getBoolean("cover", false)
     fun setCoverAi(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean("cover", on).apply()
 
+    /** The floating chip is minimised: boxes on images are hidden, only the dot and the count stay. */
+    fun overlayMinimised(ctx: Context) = sp(ctx).getBoolean("overlay_min", false)
+    fun setOverlayMinimised(ctx: Context, on: Boolean) = sp(ctx).edit().putBoolean("overlay_min", on).apply()
+
     // "Protect a photo": where the backend on the person's computer is, and what to ask it for.
     fun protectAddress(ctx: Context) = sp(ctx).getString("protect_address", "") ?: ""
     fun setProtectAddress(ctx: Context, v: String) = sp(ctx).edit().putString("protect_address", v).apply()
