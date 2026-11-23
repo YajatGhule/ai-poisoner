@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -43,7 +44,9 @@ PARTLY_AI_MIN_SEC = 8.0
 MAX_AUDIO_SEC = 15 * 60
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff", ".avif", ".heic"}
-AUDIO_EXT = {".wav", ".mp3", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".mp4", ".mov", ".mkv", ".webm", ".3gp"}
+VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".3gp", ".avi", ".m4v"}
+AUDIO_EXT = {".wav", ".mp3", ".m4a", ".aac", ".ogg", ".opus", ".flac"} | VIDEO_EXT
+VIDEO_FRAMES = 6
 
 
 class CheckError(Exception):
@@ -188,6 +191,73 @@ class Detector:
         return {"kind": "audio", "seconds": round(len(x) / RATE, 1),
                 "voice": self.check_voice(x), "music": self.check_music(x)}
 
+    def check_pcm(self, x: np.ndarray) -> dict:
+        """A recording that is already 16 kHz mono float32 (live microphone listening)."""
+        if len(x) < RATE:
+            raise CheckError("Less than a second was recorded.")
+        x = x[: MAX_AUDIO_SEC * RATE]
+        return {"kind": "audio", "seconds": round(len(x) / RATE, 1),
+                "voice": self.check_voice(x), "music": self.check_music(x)}
+
+    def live_voice(self, w: np.ndarray) -> dict:
+        """One live window (2-4 s): its AI-voice score, or none if it is too quiet or has dropouts."""
+        if not _usable(w):
+            return {"usable": False, "score": None}
+        return {"usable": True, "score": round(self.voice_score(w), 4)}
+
+    def live_music(self, w: np.ndarray) -> dict:
+        """One live 5 s window: its AI-music score, or none if it is near silent."""
+        w = np.pad(w[:MUSIC_WIN], (0, max(0, MUSIC_WIN - len(w))))
+        if np.sqrt(np.mean(w ** 2)) < 1e-3:
+            return {"score": None}
+        out = self._run("music", {"pcm": w.astype(np.float32)[None]})
+        return {"score": round(float(np.asarray(out.get("prob_ai", out[0])).ravel()[0]), 4)}
+
+    def check_frames(self, path: str) -> dict | None:
+        """Pictures taken at even points of a video, each checked like an image."""
+        dur, _ = media_info(path)
+        if not dur:
+            return None
+        times = [dur * (k + 0.5) / VIDEO_FRAMES for k in range(VIDEO_FRAMES)]
+        scores = []
+        for t in times:
+            frame = video_frame(path, t)
+            # Plain frames (a black screen behind a sound track) say nothing about the picture.
+            if frame is not None and np.asarray(frame.convert("L"), dtype=np.float32).std() >= 8:
+                scores.append((round(t, 1), round(self.image_score(frame), 3)))
+        if not scores:
+            return None
+        ps = [p for _, p in scores]
+        n_ai = sum(p >= IMAGE_AI_AT for p in ps)
+        verdict = "ai" if n_ai * 2 >= len(ps) else "human" if max(ps) < IMAGE_HUMAN_BELOW else "unsure"
+        head = {"ai": "Looks AI-generated", "human": "Looks real", "unsure": "Unsure"}[verdict]
+        return {"verdict": verdict, "headline": f"{head} ({n_ai} of {len(ps)} frames AI)",
+                "frames": [{"t": t, "score": p, "verdict": band(p, IMAGE_AI_AT, IMAGE_HUMAN_BELOW)} for t, p in scores]}
+
+    def check_path(self, path: str, name: str | None = None) -> dict:
+        """Checks a file on disk: a picture, a recording, or a video (its sound and some of its frames)."""
+        name = name or Path(path).name
+        ext = Path(name).suffix.lower()
+        if ext in IMAGE_EXT:
+            return {"name": name, **self.check_image(Path(path).read_bytes())}
+        if ext not in AUDIO_EXT and _looks_like_image(Path(path).read_bytes()):
+            return {"name": name, **self.check_image(Path(path).read_bytes())}
+        if ext in VIDEO_EXT:
+            dur, sound = media_info(path)
+            frames = self.check_frames(path)
+            x = None
+            if sound:
+                with contextlib.suppress(CheckError):
+                    x = decode_audio(path)
+            if frames is None and x is None:
+                raise CheckError("This video could not be read.")
+            out = {"name": name, "kind": "video", "seconds": round(dur or 0, 1),
+                   "frames": frames, "voice": None, "music": None, "has_sound": x is not None and len(x) >= RATE}
+            if out["has_sound"]:
+                out["voice"], out["music"] = self.check_voice(x), self.check_music(x)
+            return out
+        return {"name": name, **self.check_audio(path)}
+
     def check_file(self, name: str, data: bytes) -> dict:
         ext = Path(name).suffix.lower()
         if ext in IMAGE_EXT or (ext not in AUDIO_EXT and _looks_like_image(data)):
@@ -197,7 +267,7 @@ class Detector:
         try:
             with os.fdopen(fd, "wb") as f:
                 f.write(data)
-            return {"name": name, **self.check_audio(tmp)}
+            return self.check_path(tmp, name)
         finally:
             with contextlib.suppress(OSError):
                 os.unlink(tmp)
@@ -248,8 +318,7 @@ def _speech_summary(starts: list[float], scores: list[float], skipped: int) -> d
             "timeline": [[round(a, 1), round(s, 3)] for a, s in zip(starts, scores, strict=True)]}
 
 
-def decode_audio(path: str) -> np.ndarray:
-    """Any audio or video file to 16 kHz mono float32, using ffmpeg."""
+def find_ffmpeg() -> str:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         try:
@@ -259,7 +328,35 @@ def decode_audio(path: str) -> np.ndarray:
             ffmpeg = None
     if not ffmpeg:
         raise CheckError("Checking audio and video needs ffmpeg. Install it and restart the app.")
-    flags = {"creationflags": 0x08000000} if os.name == "nt" else {}   # no console window flash on Windows
+    return ffmpeg
+
+
+NO_WINDOW = {"creationflags": 0x08000000} if os.name == "nt" else {}   # no console window flash on Windows
+
+
+def media_info(path: str) -> tuple[float | None, bool]:
+    """(duration in seconds, has a sound track), read from ffmpeg's description of the file."""
+    r = subprocess.run([find_ffmpeg(), "-nostdin", "-hide_banner", "-i", path], capture_output=True, timeout=60, **NO_WINDOW)
+    m = re.search(rb"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)", r.stderr)
+    dur = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)) if m else None
+    return dur, re.search(rb"Stream #\S+.*: Audio:", r.stderr) is not None
+
+
+def video_frame(path: str, t: float) -> Image.Image | None:
+    r = subprocess.run([find_ffmpeg(), "-nostdin", "-v", "error", "-ss", f"{t:.2f}", "-i", path, "-frames:v", "1",
+                        "-f", "image2pipe", "-vcodec", "png", "-"], capture_output=True, timeout=60, **NO_WINDOW)
+    if r.returncode != 0 or not r.stdout:
+        return None
+    try:
+        return Image.open(io.BytesIO(r.stdout)).convert("RGB")
+    except Exception:   # noqa: BLE001 - a frame that cannot be read is skipped
+        return None
+
+
+def decode_audio(path: str) -> np.ndarray:
+    """Any audio or video file to 16 kHz mono float32, using ffmpeg."""
+    ffmpeg = find_ffmpeg()
+    flags = NO_WINDOW
     r = subprocess.run([ffmpeg, "-nostdin", "-v", "error", "-i", path, "-t", str(MAX_AUDIO_SEC), "-vn",
                         "-ac", "1", "-ar", str(RATE), "-f", "f32le", "-"], capture_output=True, timeout=300, **flags)
     if r.returncode != 0 or not r.stdout:
