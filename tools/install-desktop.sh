@@ -8,7 +8,10 @@
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 samples=""
-if [[ "${1:-}" == "--samples" ]]; then samples="$(realpath "$2")"; fi
+# --samples DIR[:DIR...]  demo-file folders the app lists (default: ~/testing files if it exists)
+if [[ "${1:-}" == "--samples" ]]; then
+  IFS=: read -ra dirs <<<"$2"; for d in "${dirs[@]}"; do samples+="${samples:+:}$(realpath "$d")"; done
+elif [[ -d "$HOME/testing files" ]]; then samples="$HOME/testing files"; fi
 dest="$HOME/.local/opt/sentinel"
 
 command -v uv >/dev/null || { echo "uv is needed: https://docs.astral.sh/uv/" >&2; exit 1; }
