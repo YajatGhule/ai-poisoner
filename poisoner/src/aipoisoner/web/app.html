@@ -58,6 +58,14 @@
   .seg button[aria-pressed=true]{background:var(--faint);color:var(--ink)}
   .meter.music{background:linear-gradient(90deg,var(--green) 0 30%,var(--amber) 30% 80%,var(--red) 80%)}
   .row2.one{grid-template-columns:1fr}
+  .qlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px;margin-top:10px}
+  .q{display:flex;align-items:center;gap:8px;border:1px solid var(--faint);border-radius:10px;padding:8px 10px;cursor:pointer;background:none;color:var(--ink);font:inherit;text-align:left}
+  .q:hover{border-color:var(--gold)}.q .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+  .q .e{font-size:11px;color:var(--mute);white-space:nowrap}.q .r{font-weight:700;width:1.2em;text-align:center}
+  .r.ok{color:var(--green)}.r.near{color:var(--amber)}.r.bad{color:var(--red)}
+  .star{cursor:pointer;color:var(--mute);background:none;border:0;padding:0 2px;font-size:15px;line-height:1}.star.on{color:var(--gold)}
+  .samples .chip{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--faint);border-radius:999px;padding:0 4px 0 0}
+  .samples .chip button.name{border:0}
   .media img{max-width:100%;max-height:420px;border-radius:8px;display:block;margin-top:8px}
   .media video{max-height:420px;background:#000;border-radius:8px;margin-top:8px}
   .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.chips .verdict{font-weight:500;font-size:12px}
@@ -88,6 +96,13 @@
     <div class="card">
       <label id="drop"><input type="file" id="file" accept="image/*,audio/*,video/*">
         <span><b>Choose a file</b> or drop one here<br><small>A picture, a voice recording, a song, or a video</small></span></label>
+      <div id="quick" hidden>
+        <div class="row" style="margin-top:14px"><h2 style="margin:0">★ Quick test</h2>
+          <button class="go" id="qrun" type="button" style="margin:0;padding:7px 14px">Run all</button>
+          <span class="sub" id="qstatus"></span></div>
+        <p class="sub" style="margin-top:4px">Your starred demo files, with what each should show. Click one to play and check it, or run them all. Star any file below with ☆.</p>
+        <div id="qlist" class="qlist"></div>
+      </div>
       <div class="samples" id="samples" hidden></div>
     </div>
     <div class="card media" id="media" hidden></div>
@@ -171,9 +186,86 @@ const isVideo = n => /\.(mp4|mov|mkv|webm|3gp|avi|m4v)$/i.test(n);
 const kindOf = n => isVideo(n) ? 'video' : isAudio(n) ? 'audio' : 'image';
 const ICON = { image: '▣', audio: '♪', video: '▶' };
 
+// What each demo file should show, worked out from where it sits ("AI", "Real", "Mixed" folders).
+function expectOf(name) {
+  if (/mixed|AI part/i.test(name)) return { want: 'partly', text: 'AI part at 0:58-1:24' };
+  if (/(^|\/)AI(\/|$)|suno|udio|ai_\d|AI voice/i.test(name) && !/real/i.test(name)) return { want: 'ai', text: 'AI' };
+  if (/(^|\/)Real(\/|$)|real_\d|real voice|real song/i.test(name)) return { want: 'human', text: 'not AI' };
+  return null;
+}
+// the verdict that matters for this file: voice for speech files, music for songs, pictures for images/videos
+function mainVerdict(name, j) {
+  if (j.kind === 'image') return j.verdict;
+  const song = /music|song|suno|udio/i.test(name);
+  if (j.kind === 'video' && !j.has_sound) return j.frames ? j.frames.verdict : null;
+  const part = song ? j.music : j.voice;
+  if (song) return part ? part.verdict : null;
+  return j.voice && j.voice.partly_ai ? 'partly' : (j.voice ? j.voice.verdict : null);
+}
+function judge(name, j) {
+  const e = expectOf(name), got = mainVerdict(name, j);
+  if (!e) return { cls: '', mark: '·', got };
+  if (e.want === 'partly') return { cls: got === 'partly' ? 'ok' : 'bad', mark: got === 'partly' ? '✓' : '✗', got };
+  if (e.want === 'ai') return { cls: got === 'ai' ? 'ok' : got === 'unsure' ? 'near' : 'bad', mark: got === 'ai' ? '✓' : got === 'unsure' ? '~' : '✗', got };
+  return { cls: got === 'ai' ? 'bad' : 'ok', mark: got === 'ai' ? '✗' : '✓', got };
+}
+const DEFAULT_STARS = ['AI voice (Kokoro)', 'Real voice', 'AI part at', 'ai_01.jpg', 'ai_02.png', 'real_01.jpg', 'real_03.jpg',
+                       'AI song 1', 'AI song 3', 'Real song 2', 'c4a_ai_image.mp4'];
+function loadStars() {
+  try { const v = JSON.parse(localStorage.getItem('sentinel-stars')); if (Array.isArray(v)) return new Set(v); } catch { /* none yet */ }
+  return null;
+}
+function saveStars(set) { try { localStorage.setItem('sentinel-stars', JSON.stringify([...set])); } catch { /* private window */ } }
+let stars = new Set();
+
+function openSample(s) {
+  const base = s.name.split('/').pop();
+  setTreat(/music|song|suno|udio/i.test(s.name) ? 'song' : /voice|speech/i.test(s.name) ? 'speech' : 'both');
+  showMedia(base, `/api/samples/${s.id}/file`);
+  return run(fetch(`/api/samples/${s.id}/check`, { method: 'POST' }), base);
+}
+
+function drawQuick() {
+  const list = $('qlist');
+  const picked = sampleList.filter(s => stars.has(s.name));
+  $('quick').hidden = !picked.length;
+  list.innerHTML = '';
+  for (const s of picked) {
+    const e = expectOf(s.name), base = s.name.split('/').pop();
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'q'; b.dataset.id = s.id; b.title = s.name;
+    b.innerHTML = `<span class="r" id="qr${s.id}">·</span><span class="n">${ICON[kindOf(base)]} ${esc(base)}</span><span class="e">${e ? 'expect ' + esc(e.text) : ''}</span>`;
+    b.onclick = () => openSample(s);
+    list.append(b);
+  }
+}
+
+$('qrun').onclick = async () => {
+  if (busy) return;
+  const picked = sampleList.filter(s => stars.has(s.name));
+  let ok = 0, near = 0, bad = 0, n = 0;
+  $('qrun').disabled = true;
+  for (const s of picked) {
+    $('qstatus').textContent = `Checking ${++n} of ${picked.length}…`;
+    const mark = document.getElementById('qr' + s.id);
+    try {
+      const r = await fetch(`/api/samples/${s.id}/check`, { method: 'POST' });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.detail);
+      const v = judge(s.name, j);
+      mark.textContent = v.mark; mark.className = 'r ' + v.cls; mark.title = 'Result: ' + (v.got ?? 'none');
+      if (v.cls === 'ok') ok++; else if (v.cls === 'near') near++; else if (v.cls === 'bad') bad++;
+    } catch (e) { mark.textContent = '✗'; mark.className = 'r bad'; mark.title = String(e.message || e); bad++; }
+  }
+  $('qrun').disabled = false;
+  $('qstatus').textContent = `${ok} as expected${near ? `, ${near} Unsure (close)` : ''}${bad ? `, ${bad} different` : ''}. “Unsure” is an honest answer, not an error.`;
+};
+
 async function samples() {
   sampleList = await (await fetch('/api/samples')).json().catch(() => []);
   if (!sampleList.length) return;
+  stars = loadStars() ?? new Set(sampleList.filter(s => DEFAULT_STARS.some(k => s.name.includes(k))).map(s => s.name));
+  drawQuick();
   const box = $('samples');
   const groups = {};
   for (const s of sampleList) (groups[s.name.split('/').slice(0, -1).join(' / ') || 'samples'] ??= []).push(s);
@@ -181,15 +273,20 @@ async function samples() {
   for (const [g, items] of Object.entries(groups)) {
     const h = document.createElement('h3'); h.textContent = 'Demo files · ' + g; box.append(h);
     for (const s of items.slice(0, 40)) {
-      const b = document.createElement('button');
+      const chip = document.createElement('span'); chip.className = 'chip';
       const base = s.name.split('/').pop();
-      b.type = 'button'; b.textContent = ICON[kindOf(base)] + ' ' + base; b.title = 'Play and check ' + s.name;
-      b.onclick = () => {
-        setTreat(/music|song|suno|udio/i.test(s.name) ? 'song' : /voice|speech/i.test(s.name) ? 'speech' : 'both');
-        showMedia(base, `/api/samples/${s.id}/file`);
-        run(fetch(`/api/samples/${s.id}/check`, { method: 'POST' }), base);
+      const star = document.createElement('button');
+      star.type = 'button'; star.className = 'star' + (stars.has(s.name) ? ' on' : ''); star.textContent = stars.has(s.name) ? '★' : '☆';
+      star.title = 'Add to or remove from Quick test'; star.setAttribute('aria-label', 'Star ' + base);
+      star.onclick = () => {
+        if (stars.has(s.name)) stars.delete(s.name); else stars.add(s.name);
+        saveStars(stars); star.className = 'star' + (stars.has(s.name) ? ' on' : ''); star.textContent = stars.has(s.name) ? '★' : '☆'; drawQuick();
       };
-      box.append(b);
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'name'; b.textContent = ICON[kindOf(base)] + ' ' + base; b.title = 'Play and check ' + s.name;
+      b.onclick = () => openSample(s);
+      chip.append(star, b);
+      box.append(chip);
     }
   }
   box.hidden = false;
