@@ -68,7 +68,7 @@ def cmd_app(args) -> int:
         running = False
     server = None
     if not running:
-        samples = Path(args.samples).expanduser() if args.samples else None
+        samples = [Path(s).expanduser() for s in args.samples.split(os.pathsep) if s] if args.samples else None
         detector = Detector()
         app = create_app(_protector(args), detector=detector, samples=samples)
         server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=args.port, log_level="warning"))
@@ -200,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
     a = sub.add_parser("app", help="open the SENTINEL desktop app (check files for AI, protect images)")
     a.add_argument("--port", type=int, default=8765)
     a.add_argument("--samples", default=os.environ.get("SENTINEL_SAMPLES"),
-                   help="folder of demo files to list in the app (or set SENTINEL_SAMPLES)")
+                   help=f"folder(s) of demo files to list in the app, separated by {os.pathsep!r} (or set SENTINEL_SAMPLES)")
     a.add_argument("--no-window", action="store_true", help="only run the server")
     _add_common(a)
     a.set_defaults(func=cmd_app)

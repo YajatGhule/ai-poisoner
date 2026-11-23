@@ -8,6 +8,8 @@ network (for the phone app) and then every API call needs the access token.
 from __future__ import annotations
 
 import hmac
+
+import numpy as np
 import html
 import re
 from contextlib import asynccontextmanager
@@ -21,7 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 
 from . import __version__
 from .attack import MODES, STRENGTHS
-from .detect import AUDIO_EXT, IMAGE_EXT, CheckError, Detector
+from .detect import AUDIO_EXT, IMAGE_EXT, RATE, CheckError, Detector, decode_audio
 from .imageio import FORMATS
 from .jobs import JobManager, QueueFull
 from .protector import Protector, check_options
@@ -51,7 +53,7 @@ Right-click a picture and choose <i>Protect this image with SENTINEL</i> to try 
 
 
 def create_app(protector: Protector | None = None, token: str | None = None,
-               detector: Detector | None = None, samples: Path | None = None) -> FastAPI:
+               detector: Detector | None = None, samples: Path | list[Path] | None = None) -> FastAPI:
     protector = protector or Protector()
     detector = detector or Detector()
     jobs = JobManager(protector)
@@ -160,31 +162,73 @@ def create_app(protector: Protector | None = None, token: str | None = None,
         except CheckError as e:
             raise HTTPException(422, str(e)) from e
 
-    def sample_files() -> list[Path]:
-        if not samples or not samples.is_dir():
-            return []
+    roots = [Path(r) for r in (samples if isinstance(samples, (list, tuple)) else [samples]) if r]
+
+    def sample_entries() -> list[tuple[str, Path]]:
+        """(name shown in the app, file) for every demo file under the sample folders."""
         ok = IMAGE_EXT | AUDIO_EXT
-        return sorted(p for p in samples.rglob("*") if p.is_file() and p.suffix.lower() in ok)[:200]
+        out = []
+        for root in roots:
+            if not root.is_dir():
+                continue
+            files = sorted(p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in ok)
+            prefix = (root.name + "/") if len(roots) > 1 else ""
+            out += [(prefix + p.relative_to(root).as_posix(), p) for p in files]
+        return out[:300]
+
+    def sample_files() -> list[Path]:
+        return [p for _, p in sample_entries()]
+
+    def sample(i: int) -> Path:
+        files = sample_files()
+        if not 0 <= i < len(files):
+            raise HTTPException(404, "No such sample.")
+        return files[i]
 
     @app.get("/api/samples")
     def list_samples():
-        return [{"id": i, "name": str(p.relative_to(samples)), "size": p.stat().st_size}
-                for i, p in enumerate(sample_files())]
+        return [{"id": i, "name": n, "size": p.stat().st_size} for i, (n, p) in enumerate(sample_entries())]
 
     @app.get("/api/samples/{i}/file")
     def sample_file(i: int):
-        files = sample_files()
-        if not 0 <= i < len(files):
-            raise HTTPException(404, "No such sample.")
-        return FileResponse(files[i])
+        return FileResponse(sample(i))
 
     @app.post("/api/samples/{i}/check")
     async def check_sample(i: int):
-        files = sample_files()
-        if not 0 <= i < len(files):
-            raise HTTPException(404, "No such sample.")
+        p = sample(i)
         try:
-            return await run_in_threadpool(detector.check_file, files[i].name, files[i].read_bytes())
+            return await run_in_threadpool(detector.check_path, str(p))
+        except CheckError as e:
+            raise HTTPException(422, str(e)) from e
+
+    @app.get("/api/samples/{i}/pcm")
+    async def sample_pcm(i: int):
+        """The sound of a demo file as 16 kHz mono float32, for simulating live listening."""
+        try:
+            x = await run_in_threadpool(decode_audio, str(sample(i)))
+        except CheckError as e:
+            raise HTTPException(422, str(e)) from e
+        return Response(x.astype("<f4").tobytes(), media_type="application/octet-stream")
+
+    # ---- live listening: the page captures the microphone at 16 kHz and sends windows of raw float32 ----
+    async def read_pcm(request: Request, min_sec: float, max_sec: float) -> np.ndarray:
+        body = await request.body()
+        if len(body) % 4 or not min_sec * RATE * 4 <= len(body) <= max_sec * RATE * 4:
+            raise HTTPException(422, f"Send {min_sec}-{max_sec} s of 16 kHz mono float32 audio.")
+        return np.frombuffer(body, dtype="<f4").astype(np.float32)
+
+    @app.post("/api/live/voice")
+    async def live_voice(request: Request):
+        return await run_in_threadpool(detector.live_voice, await read_pcm(request, 1.0, 6.0))
+
+    @app.post("/api/live/music")
+    async def live_music(request: Request):
+        return await run_in_threadpool(detector.live_music, await read_pcm(request, 1.0, 6.0))
+
+    @app.post("/api/live/check")
+    async def live_check(request: Request):
+        try:
+            return await run_in_threadpool(detector.check_pcm, await read_pcm(request, 1.0, 15 * 60))
         except CheckError as e:
             raise HTTPException(422, str(e)) from e
 
