@@ -1,6 +1,6 @@
 # SIDT Jury Explainer: SENTINEL (on-device detection and data poisoning for AI image, voices and music)
 
-**Group G14: Yajat Vinay Ghule and Samarth S Shetty**
+**Group G14: Yajat Vinay Ghule**
 
 This is our cheat sheet in plain words. Every technical term from the report is explained simply, then each model gets an honest "can do, cannot do" list, then the design thinking stages and likely viva questions. The explanations are oversimplified on purpose, but we tried not to say anything false.
 
