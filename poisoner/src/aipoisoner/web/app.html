@@ -43,7 +43,15 @@
   .panel{border:1px solid var(--faint);border-radius:10px;padding:14px}
   .panel .k{margin-bottom:6px}
   svg.tl{width:100%;height:46px;display:block;margin-top:10px}
-  svg.tl.chart{height:auto;max-height:260px;overflow:visible}
+  svg.tl.chart{height:auto;max-height:260px;overflow:visible;cursor:zoom-in}
+  .chartwrap{position:relative}
+  .expand{position:absolute;top:-6px;right:0;background:var(--bg);border:1px solid var(--faint);color:var(--mute);border-radius:6px;font:11px ui-monospace,monospace;padding:3px 8px;cursor:pointer;z-index:1}
+  .expand:hover{color:var(--ink);border-color:var(--gold)}
+  #zoom{position:fixed;inset:0;background:rgba(8,7,6,.92);z-index:50;display:flex;align-items:center;justify-content:center;padding:3vh 3vw}
+  #zoom .box{background:var(--bg2);border:1px solid var(--faint);border-radius:14px;padding:18px 22px;width:min(1500px,96vw);max-height:94vh;overflow:auto}
+  #zoom .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  #zoom svg.tl.chart{max-height:none;width:100%;cursor:default}
+  #zoom .x{background:none;border:1px solid var(--faint);color:var(--ink);border-radius:8px;padding:6px 14px;cursor:pointer;font:inherit}
   .busy{display:flex;align-items:center;gap:12px;color:var(--mute)}
   .spin{width:18px;height:18px;border:2px solid var(--faint);border-top-color:var(--gold);border-radius:50%;animation:s 1s linear infinite}
   @keyframes s{to{transform:rotate(360deg)}}
@@ -152,6 +160,9 @@
     <iframe id="pframe" title="Protect an image" data-src="/protect"></iframe>
   </section>
 </main>
+<div id="zoom" role="dialog" aria-modal="true" aria-label="Graph" hidden>
+  <div class="box"><div class="top"><div class="k" id="ztitle">AI score over time</div><button class="x" id="zclose" type="button">Close ✕</button></div><div id="zbody"></div></div>
+</div>
 <script>
 const $ = id => document.getElementById(id);
 const pct = p => Math.round(p * 100) + '%';
@@ -418,8 +429,9 @@ function timeline(tl, total, live = false) {
       `<polyline points="${pts.map(([x, y]) => x.toFixed(1) + ',' + y.toFixed(1)).join(' ')}" fill="none" stroke="#ede7db" stroke-width="1.6" stroke-linejoin="round" opacity=".85"/>` +
       pts.map(([x, y, p, t]) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.4" fill="${col(p)}" stroke="#0e0d0c" stroke-width="1"><title>${clock(t)}–${clock(t + 4)}: ${Math.round(p * 100)}% AI</title></circle>`).join('');
   }
-  return `<svg class="tl chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Chance that each 4-second window is an AI voice, from 0 to 100 percent, over time">${g}${plot}
-    <text x="12" y="${T + ph / 2}" transform="rotate(-90 12 ${T + ph / 2})" text-anchor="middle" fill="#8d867c" font-size="11">chance it is AI</text></svg>`;
+  return `<div class="chartwrap${live ? ' live' : ''}"><button type="button" class="expand" title="Expand the graph (Esc to close)" aria-label="Expand the graph">⤢ Expand</button>
+    <svg class="tl chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Chance that each 4-second window is an AI voice, from 0 to 100 percent, over time">${g}${plot}
+    <text x="12" y="${T + ph / 2}" transform="rotate(-90 12 ${T + ph / 2})" text-anchor="middle" fill="#8d867c" font-size="11">chance it is AI</text></svg></div>`;
 }
 function clock(s) { s = Math.floor(s); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
 
@@ -491,6 +503,7 @@ function drawLive() {
   $('lvoice').innerHTML = `<div class="k">Voice (speech), live</div>${badge(v.verdict)}<div class="head" style="font-size:24px">${esc(v.head)}</div>
     <p class="sub">${v.n ? `${pct(v.share)} of ${v.n} windows sound AI` : 'Speak, or play a recording near the microphone'}${v.stretches.length ? ' · AI at ' + v.stretches.map(([a, b]) => clock(a) + '–' + clock(b)).join(', ') : ''}${live.skipped ? ` · ${live.skipped} quiet windows skipped` : ''}</p>
     ${timeline(live.voice, sec, true)}`;
+  if (zoomLive && !$('zoom').hidden) $('zbody').innerHTML = timeline(live.voice, sec, true).replace(/<button[\s\S]*?<\/button>/, '');
   const ms = live.music.map(x => x[1]);
   const mp = ms.length ? ms.reduce((a, b) => a + b, 0) / ms.length : null;
   const mv = mp == null ? null : mp >= 0.8 ? 'ai' : mp <= 0.3 ? 'human' : 'unsure';
@@ -586,6 +599,22 @@ function wav(x) {   // 16-bit PCM WAV, so the recording can be played back and s
   for (let i = 0; i < x.length; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, x[i])) * 32767, true);
   return new Blob([b], { type: 'audio/wav' });
 }
+
+let zoomLive = false;
+function openZoom(wrap) {
+  zoomLive = wrap.classList.contains('live');
+  const svg = wrap.querySelector('svg').outerHTML;
+  $('zbody').innerHTML = `<div class="chartwrap">${svg}</div>`;
+  $('ztitle').textContent = zoomLive ? 'AI score over time · live' : 'AI score over time';
+  $('zoom').hidden = false; $('zclose').focus();
+}
+function closeZoom() { $('zoom').hidden = true; zoomLive = false; $('zbody').innerHTML = ''; }
+document.addEventListener('click', e => {
+  const w = e.target.closest('.chartwrap');
+  if (w && !e.target.closest('#zoom')) openZoom(w);
+  else if (e.target === $('zoom') || e.target.closest('#zclose')) closeZoom();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('zoom').hidden) closeZoom(); });
 
 $('lstart').onclick = startMic;
 $('lsim').onclick = startSim;
